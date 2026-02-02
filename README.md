@@ -9,7 +9,8 @@
 1. [Executive Summary](#1-executive-summary)
 2. [Technisches Anforderungsprofil](#2-technisches-anforderungsprofil-context-for-dev-ai)
 3. [Kern-Workflow: „Der Rote Faden“](#3-kern-workflow-der-rote-faden)
-4. [Dokumentation](#4-dokumentation)
+4. [Lokale Entwicklung (.venv)](#4-lokale-entwicklung-venv)
+5. [Dokumentation](#5-dokumentation)
 
 ---
 
@@ -71,7 +72,26 @@ Der Agent führt folgende Schritte autonom oder semi-autonom durch:
 
 ---
 
-## 4. Dokumentation
+## 4. Lokale Entwicklung (.venv)
+
+Das Projekt nutzt eine virtuelle Umgebung im Ordner `.venv`:
+
+```powershell
+# Venv anlegen (einmalig)
+python -m venv .venv
+
+# Aktivieren (PowerShell)
+.\.venv\Scripts\Activate.ps1
+
+# Abhängigkeiten inkl. Dev-Tools installieren
+pip install -e ".[dev]"
+```
+
+Danach: `uvicorn app.main:app --reload`, `pytest tests/ -v`, `ruff check app`.
+
+---
+
+## 5. Dokumentation
 
 | Dokument                                          | Inhalt                                           |
 | ------------------------------------------------- | ------------------------------------------------ |

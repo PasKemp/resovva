@@ -1,0 +1,106 @@
+name: Resovva CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  REGISTRY: ghcr.io
+  # Image Name muss lowercase sein
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ---------------------------------------------------
+  # JOB 1: TESTING (Quality Gate)
+  # ---------------------------------------------------
+  test:
+    name: Unit & Integration Tests
+    # WICHTIG: Hier sagen wir, dass es auf DEINEM Server laufen soll
+    runs-on: [self-hosted, linux]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip' # Caching beschleunigt den Build enorm
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run Pytest
+        # Hier laufen deine Unit Tests.
+        # Integration Tests, die Qdrant brauchen, skippen wir hier ggf. oder
+        # wir starten vorher einen lokalen Qdrant Container.
+        run: |
+          export PYTHONPATH=$PYTHONPATH:.
+          pytest tests/unit --junitxml=test-results.xml
+
+  # ---------------------------------------------------
+  # JOB 2: BUILD & DEPLOY (Nur auf Main Branch)
+  # ---------------------------------------------------
+  build-and-deploy:
+    name: Build Docker & Deploy to K8s
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux]
+    permissions:
+      contents: read
+      packages: write # Erlaubt Push zu GHCR
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Login bei GitHub Container Registry
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Metadaten extrahieren (Tags, Labels)
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=long
+            latest
+
+      # Build & Push (Nutzt den Docker Daemon auf deinem Server)
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      # Deployment auf dein lokales Kubernetes
+      - name: Deploy to Local K8s
+        run: |
+          # Wir holen uns den neuen Image Tag (SHA)
+          NEW_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-$(git rev-parse HEAD)"
+          echo "Deploying image: $NEW_IMAGE"
+
+          # Update Deployment.yaml on the fly
+          # (Im echten Leben nutzt man Kustomize oder Helm, für MVP reicht sed)
+          sed -i "s|image: .*|image: $NEW_IMAGE|g" k8s/deployment.yaml
+
+          # Apply Manifests
+          # Der Runner muss Zugriff auf kubectl haben!
+          kubectl apply -f k8s/
+
+          # Force Restart, damit das neue Image gezogen wird
+          kubectl rollout restart deployment/resovva-api

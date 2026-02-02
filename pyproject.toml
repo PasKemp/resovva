@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "resovva"
+version = "0.1.0"
+description = "Resovva.ai – Intelligenter Fall-Assistent (LegalTech)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [{ name = "Resovva" }]
+dependencies = [
+    "fastapi>=0.109",
+    "uvicorn[standard]>=0.27",
+    "pydantic>=2.5",
+    "pydantic-settings>=2.1",
+    "langgraph>=0.0.20",
+    "langchain-core>=0.1",
+    "langchain-openai>=0.0.5",
+    "qdrant-client>=1.7",
+    "python-multipart>=0.0.6",
+    "httpx>=0.26",
+]
+
+[project.optional-dependencies]
+postgres = [
+    "langgraph-checkpoint-postgres>=3.0",
+    "psycopg[binary,pool]>=3.1",
+]
+dev = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.1",
+]
+ingest-unstructured = [
+    "unstructured[pdf]>=0.16",
+]
+ingest-azure = [
+    "azure-ai-documentintelligence>=1.0",
+]
+
+[project.scripts]
+# resovva-serve = "app.main:run"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
