@@ -14,9 +14,14 @@ spec:
       labels:
         app: resovva
     spec:
+      # WICHTIG: Damit K8s sich bei GitHub einloggen kann
+      imagePullSecrets:
+      - name: ghcr-secret
+
       containers:
       - name: api
-        image: resovva-registry/backend:latest
+        image: ghcr.io/PasKemp/resovva:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8000
         env:
