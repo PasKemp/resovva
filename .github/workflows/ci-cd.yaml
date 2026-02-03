@@ -33,8 +33,7 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          pip install -e ".[dev]"
 
       - name: Run Pytest
         # Hier laufen deine Unit Tests.
@@ -42,7 +41,7 @@ jobs:
         # wir starten vorher einen lokalen Qdrant Container.
         run: |
           export PYTHONPATH=$PYTHONPATH:.
-          pytest tests/unit --junitxml=test-results.xml
+          pytest tests/ --junitxml=test-results.xml
 
   # ---------------------------------------------------
   # JOB 2: BUILD & DEPLOY (Nur auf Main Branch)
