@@ -23,10 +23,14 @@ class Settings(BaseSettings):
     app_name: str = "Resovva.ai"
     debug: bool = False
 
-    # Azure OpenAI (DSGVO: Azure Germany)
+    # Azure OpenAI (DSGVO: Azure Germany) – für Production
     azure_openai_endpoint: Optional[str] = None
     azure_openai_api_key: Optional[str] = None
     azure_openai_deployment: str = "gpt-4o"
+    openai_api_version: str = "2024-02-15-preview"
+
+    # Standard OpenAI (platform.openai.com) – für DEV ohne Azure-Genehmigung
+    openai_api_key: Optional[str] = None
 
     # Embeddings
     embedding_model: str = "text-embedding-3-small"

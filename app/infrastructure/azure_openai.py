@@ -1,30 +1,54 @@
 """
-LLM Wrapper – Azure OpenAI (DSGVO: Azure Germany).
+LLM Wrapper – Azure OpenAI (Production) oder Standard OpenAI (DEV).
 
-Chat/Completion und Embeddings.
+Chat/Completion und Embeddings. Für DEV: OPENAI_API_KEY (platform.openai.com).
+Für Production: Azure-Variablen (DSGVO: Azure Germany).
 """
 
 from typing import List, Optional
 
-# from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+from app.core.config import get_settings
 
 
-def get_llm(
-    endpoint: Optional[str] = None,
-    api_key: Optional[str] = None,
-    deployment: str = "gpt-4o",
-):
+def get_llm():
     """
-    Azure OpenAI Chat-Modell für LangChain/LangGraph.
-    TODO: Aus app.core.config.get_settings() befüllen.
+    Liefert das Chat-Modell für LangChain/LangGraph.
+
+    - Azure konfiguriert (Endpoint + Key) → AzureChatOpenAI (Production).
+    - Nur OPENAI_API_KEY gesetzt → ChatOpenAI (DEV, platform.openai.com, Pay-per-Use).
     """
-    # return AzureChatOpenAI(
-    #     azure_endpoint=endpoint,
-    #     api_key=api_key,
-    #     azure_deployment=deployment,
-    #     api_version="2024-02-15-preview",
-    # )
-    return None
+    settings = get_settings()
+
+    # Production: Azure OpenAI (DSGVO)
+    if settings.azure_openai_endpoint and settings.azure_openai_api_key:
+        from langchain_openai import AzureChatOpenAI
+
+        endpoint = (settings.azure_openai_endpoint or "").rstrip("/")
+        return AzureChatOpenAI(
+            azure_endpoint=endpoint,
+            api_key=settings.azure_openai_api_key,
+            azure_deployment=settings.azure_openai_deployment,
+            openai_api_version=settings.openai_api_version,
+            temperature=0,
+            timeout=60,
+        )
+
+    # DEV: Standard OpenAI (platform.openai.com, z.B. 5€ Guthaben)
+    if settings.openai_api_key:
+        from langchain_openai import ChatOpenAI
+
+        return ChatOpenAI(
+            model="gpt-4o",
+            api_key=settings.openai_api_key,
+            temperature=0,
+            timeout=60,
+        )
+
+    raise ValueError(
+        "Kein LLM konfiguriert. "
+        "DEV: Setze OPENAI_API_KEY in .env (platform.openai.com, Pay-per-Use). "
+        "Production: Setze AZURE_OPENAI_ENDPOINT und AZURE_OPENAI_API_KEY."
+    )
 
 
 def get_embeddings(

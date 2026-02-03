@@ -1,44 +1,51 @@
 """
 RAG/Ingest – Abstraktion für PDF- und Tabellen-Extraktion.
-
-Backends (INGEST_BACKEND):
-- text: Reiner Text-Platzhalter (keine Tabellen).
-- unstructured: unstructured.io – PDF + Tabellen (pip install resovva[ingest-unstructured]).
-- azure: Azure Document Intelligence – Rechnungen/Layout/Tabellen (pip install resovva[ingest-azure]).
-
-Für Rechnungen mit Tabellen: unstructured oder azure nutzen, damit Positionen
-und Zellen korrekt erkannt werden.
 """
-
 from pathlib import Path
 from typing import List, Optional
-
 from app.core.config import get_settings
 
+# Neu importieren
+import pypdf
 
 class IngestResult:
     """Ergebnis der Dokument-Extraktion: Fließtext + optionale Tabellen."""
-
     def __init__(
         self,
         text: str = "",
-        tables: Optional[List[List[List[str]]] = None
+        tables: Optional[List[List[List[str]]]] = None,
         raw_elements: Optional[List[dict]] = None,
     ):
         self.text = text or ""
         self.tables = tables or []
         self.raw_elements = raw_elements or []
 
+def _ingest_text(path: Path) -> IngestResult:
+    """
+    Standard: Nutzung von pypdf für schnelle Text-Extraktion.
+    Gut für Fließtext, schlecht für komplexe Tabellen.
+    """
+    text_content = []
+    try:
+        reader = pypdf.PdfReader(str(path))
+        for page in reader.pages:
+            # Extrahiere Text und bereinige grob Whitespaces
+            page_text = page.extract_text()
+            if page_text:
+                text_content.append(page_text)
 
-def _ingest_text(_path: Path) -> IngestResult:
-    """Platzhalter: nur leerer Text (bisheriger reiner Text-Parser)."""
-    return IngestResult(text="")
+        full_text = "\n\n".join(text_content)
+        return IngestResult(text=full_text)
+
+    except Exception as e:
+        print(f"Error reading PDF {path}: {e}")
+        return IngestResult(text=f"[Error parsing PDF: {path.name}]")
 
 
 def _ingest_unstructured(path: Path) -> IngestResult:
     """unstructured.io: PDF + Tabellen als strukturierte Elemente."""
     try:
-        from unstructured.partition.auto import partition
+        from unstructured.partition.auto import partition  # type: ignore[import-untyped]
     except ImportError:
         return _ingest_text(path)
 
@@ -79,9 +86,9 @@ def _ingest_azure(path: Path) -> IngestResult:
         return _ingest_text(path)
 
     try:
-        from azure.ai.documentintelligence import DocumentIntelligenceClient
-        from azure.ai.documentintelligence.models import DocumentContentFormat
-        from azure.core.credentials import AzureKeyCredential
+        from azure.ai.documentintelligence import DocumentIntelligenceClient  # type: ignore[import-untyped]
+        from azure.ai.documentintelligence.models import DocumentContentFormat  # type: ignore[import-untyped]
+        from azure.core.credentials import AzureKeyCredential  # type: ignore[import-untyped]
     except ImportError:
         return _ingest_text(path)
 
@@ -121,12 +128,14 @@ def _ingest_azure(path: Path) -> IngestResult:
 
 def extract_document_content(path: Path) -> IngestResult:
     """
-    Extrahiert Text und Tabellen aus einem Dokument (PDF etc.).
-    Backend über INGEST_BACKEND (text | unstructured | azure).
+    Wählt das Backend basierend auf Config.
     """
     backend = (get_settings().ingest_backend or "text").strip().lower()
+
     if backend == "unstructured":
         return _ingest_unstructured(path)
     if backend == "azure":
         return _ingest_azure(path)
+
+    # Default: pypdf
     return _ingest_text(path)

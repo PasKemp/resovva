@@ -21,6 +21,7 @@ dependencies = [
     "qdrant-client>=1.7",
     "python-multipart>=0.0.6",
     "httpx>=0.26",
+    "pypdf>=4.0",
 ]
 
 [project.optional-dependencies]
