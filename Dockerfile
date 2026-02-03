@@ -14,8 +14,9 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 COPY pyproject.toml ./
+COPY app/ ./app/
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -e .
+    && pip install --no-cache-dir .
 
 # Stage 2: Runtime (minimal, non-root)
 FROM python:3.12-slim AS runtime

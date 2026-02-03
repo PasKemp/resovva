@@ -35,6 +35,14 @@ def _node_gaps(state: AgentState) -> AgentState:
     return {**state, "current_step": "gaps"}
 
 
+def _route_after_gaps(state: AgentState) -> str:
+    """Conditional: Bei fehlenden Infos auf User warten, sonst beenden."""
+    missing = state.get("missing_info") or []
+    if missing:
+        return "wait_for_user"
+    return "end"
+
+
 def build_graph():
     """Erstellt den kompilieren LangGraph-Graphen mit Checkpointer (für Resume)."""
     graph = StateGraph(AgentState)
@@ -48,7 +56,11 @@ def build_graph():
     graph.add_edge("ingest", "extract")
     graph.add_edge("extract", "chronology")
     graph.add_edge("chronology", "gaps")
-    graph.add_edge("gaps", END)
+    graph.add_conditional_edges(
+        "gaps",
+        _route_after_gaps,
+        {"wait_for_user": END, "end": END},
+    )
 
     checkpointer = get_checkpointer()
     return graph.compile(checkpointer=checkpointer)
