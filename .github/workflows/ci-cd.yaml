@@ -91,20 +91,23 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+      # ---------------------------------------------------
       # Deployment auf dein lokales Kubernetes
-      - name: Deploy to Local K8s
-        run: |
-          # Wir holen uns den neuen Image Tag (SHA)
-          NEW_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-$(git rev-parse HEAD)"
-          echo "Deploying image: $NEW_IMAGE"
+    #  - name: Deploy to Local K8s
+    #    run: |
+    #      # Wir holen uns den neuen Image Tag (SHA)
+    #      NEW_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-$(git rev-parse HEAD)"
+    #      echo "Deploying image: $NEW_IMAGE"
+#
+#          # Update Deployment.yaml on the fly
+#          # (Im echten Leben nutzt man Kustomize oder Helm, für MVP reicht sed)
+#          sed -i "s|image: .*|image: $NEW_IMAGE|g" k8s/backend-deployment.yaml
+#
+#          # Apply Manifests
+#          # Der Runner muss Zugriff auf kubectl haben!
+#          kubectl apply -f k8s/
+#
+#          # Force Restart, damit das neue Image gezogen wird
+#          kubectl rollout restart deployment/resovva-api
 
-          # Update Deployment.yaml on the fly
-          # (Im echten Leben nutzt man Kustomize oder Helm, für MVP reicht sed)
-          sed -i "s|image: .*|image: $NEW_IMAGE|g" k8s/backend-deployment.yaml
-
-          # Apply Manifests
-          # Der Runner muss Zugriff auf kubectl haben!
-          kubectl apply -f k8s/
-
-          # Force Restart, damit das neue Image gezogen wird
-          kubectl rollout restart deployment/resovva-api
+      # ---------------------------------------------------
