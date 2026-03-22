@@ -1,0 +1,103 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Global Styles — Resovva
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+/* Reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  background: #F7F7FC;
+  color: #1A1A2E;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: #f0f0f4; }
+::-webkit-scrollbar-thumb  { background: #d0d0e0; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #b0b0c8; }
+
+/* ── Animations ────────────────────────────────────────────────────────────── */
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+
+@keyframes progressFill {
+  from { width: 0%; }
+}
+
+/* ── Utility Classes ───────────────────────────────────────────────────────── */
+
+.fade-up {
+  animation: fadeUp 0.4s ease forwards;
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease forwards;
+}
+
+.card-hover {
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  cursor: pointer;
+}
+
+.card-hover:hover {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.10);
+  transform: translateY(-2px);
+}
+
+.spin {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+.pulse {
+  animation: pulse 1.5s ease infinite;
+}
+
+/* ── Focus Styles ──────────────────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid #F15A24;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Input Reset ───────────────────────────────────────────────────────────── */
+
+input, button, select, textarea {
+  font-family: inherit;
+}
+
+button {
+  cursor: pointer;
+}

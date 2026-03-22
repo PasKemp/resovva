@@ -1,0 +1,44 @@
+import type { ReactNode } from "react";
+import { colors, typography } from ".././theme/tokens";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Badge — status / label pill
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type BadgeColor = "orange" | "teal" | "yellow" | "green" | "muted" | "red";
+
+interface BadgeProps {
+  children: ReactNode;
+  color?:   BadgeColor;
+}
+
+const COLOR_MAP: Record<BadgeColor, { bg: string; text: string }> = {
+  orange: { bg: colors.orangeLight, text: colors.orange },
+  teal:   { bg: colors.tealLight,   text: colors.teal },
+  yellow: { bg: colors.yellow,      text: colors.yellowText },
+  green:  { bg: colors.green,       text: colors.greenText },
+  red:    { bg: colors.red,         text: colors.redText },
+  muted:  { bg: "#F0F0F6",          text: colors.muted },
+};
+
+export const Badge = ({ children, color = "muted" }: BadgeProps) => {
+  const { bg, text } = COLOR_MAP[color];
+  return (
+    <span
+      style={{
+        background:  bg,
+        color:       text,
+        padding:     "3px 12px",
+        borderRadius: 20,
+        fontSize:    12,
+        fontWeight:  600,
+        fontFamily:  typography.sans,
+        display:     "inline-block",
+        lineHeight:  1.6,
+        whiteSpace:  "nowrap",
+      }}
+    >
+      {children}
+    </span>
+  );
+};

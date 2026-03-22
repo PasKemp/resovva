@@ -1,22 +1,21 @@
-# Dev (docker compose — target: dev)
-FROM node:20-bookworm AS dev
+# ── Stage 1: Build ────────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
 WORKDIR /app
-COPY package.json ./
-RUN npm install
-COPY . .
-EXPOSE 5173
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
 
-# Build static assets
-FROM node:20-bookworm AS build
-WORKDIR /app
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json* ./
+RUN npm ci
+
 COPY . .
 RUN npm run build
 
-# Production: statische Dateien über Nginx
-FROM nginx:alpine AS prod
-COPY --from=build /app/dist /usr/share/nginx/html
+# ── Stage 2: Serve ────────────────────────────────────────────────────────────
+FROM nginx:alpine AS runner
+
+# Copy built assets
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# SPA routing: all paths fall through to index.html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
