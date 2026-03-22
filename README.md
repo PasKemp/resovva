@@ -1,4 +1,4 @@
-# Resovva.ai
+# Resovva.de
 
 **Projekt-Spezifikation** – Intelligenter Fall-Assistent (LegalTech).
 
@@ -16,7 +16,7 @@
 
 ## 1. Executive Summary
 
-Resovva.ai ist ein **KI-gestützter LegalTech-Service**, der Endverbrauchern hilft, komplexe Streitigkeiten mit Stromanbietern und Netzbetreibern (z.B. Abrechnungsfehler, PV-Probleme, Anbieterwechsel) effizient zu lösen. Das System fungiert als intelligenter Fall-Assistent, der Dokumente analysiert, eine Chronologie erstellt und ein professionelles Beschwerde-Dossier für Behörden oder Schlichtungsstellen generiert.
+Resovva.de ist ein **KI-gestützter LegalTech-Service**, der Endverbrauchern hilft, komplexe Streitigkeiten mit Stromanbietern und Netzbetreibern (z.B. Abrechnungsfehler, PV-Probleme, Anbieterwechsel) effizient zu lösen. Das System fungiert als intelligenter Fall-Assistent, der Dokumente analysiert, eine Chronologie erstellt und ein professionelles Beschwerde-Dossier für Behörden oder Schlichtungsstellen generiert.
 
 | Aspekt          | Beschreibung                                                                                         |
 | --------------- | ---------------------------------------------------------------------------------------------------- |
@@ -72,30 +72,45 @@ Der Agent führt folgende Schritte autonom oder semi-autonom durch:
 
 ---
 
-## 4. Lokale Entwicklung (.venv)
+## 4. Lokale Entwicklung
 
-Das Projekt nutzt eine virtuelle Umgebung im Ordner `.venv`:
+### Docker Compose (empfohlen)
+
+Im Repository-Root:
 
 ```powershell
-# Venv anlegen (einmalig)
-python -m venv .venv
-
-# Aktivieren (PowerShell)
-.\.venv\Scripts\Activate.ps1
-
-# Abhängigkeiten inkl. Dev-Tools installieren
-pip install -e ".[dev]"
+docker-compose up --build
 ```
 
-Danach: `uvicorn app.main:app --reload`, `pytest tests/ -v`, `ruff check app`.
+Frontend: http://localhost:5173 · API-Docs: http://localhost:8000/docs
+
+### Backend nur mit Python (.venv)
+
+```powershell
+cd backend
+python -m venv ..\.venv
+..\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+uvicorn app.main:app --reload
+```
+
+Tests und Lint (im Ordner `backend/`):
+
+```powershell
+cd backend
+pytest tests/ -v
+ruff check app
+```
 
 ---
 
 ## 5. Dokumentation
 
-| Dokument                                          | Inhalt                                           |
-| ------------------------------------------------- | ------------------------------------------------ |
-| [00_PRODUCT_VISION.md](docs/00_PRODUCT_VISION.md) | Produktvision, MVP-Scope, technische Leitplanken |
-| [01_USER_FLOW.md](docs/01_USER_FLOW.md)           | User Flow & System States (Mermaid-Diagramm)     |
-| [02_DATA_SCHEMA.md](docs/02_DATA_SCHEMA.md)       | Data Schema & Domain Models (Pydantic)           |
-| [issues_backlog.md](docs/issues_backlog.md)       | Setup-Tasks und User Stories (Backlog)           |
+| Dokument                                                          | Inhalt                                           |
+| ----------------------------------------------------------------- | ------------------------------------------------ |
+| [00_VISION.md](docs/00_VISION.md)                                 | Produktvision, MVP-Scope, technische Leitplanken |
+| [01_TECHNICAL_ARCHITECTURE.md](docs/01_TECHNICAL_ARCHITECTURE.md) | Repo-Struktur, Stack, Dev-Workflow               |
+| [API-DESIGN.md](docs/API-DESIGN.md)                               | API-Oberfläche / Endpunkte (Entwurf)             |
+| [epics/](docs/epics/)                                             | Epics EPIC1–EPIC6                                |
+
+Hinweis: Ältere oder ausgelagerte Docs (z. B. User Flow, Data Schema, Backlog) können bei Bedarf wieder unter `docs/` ergänzt und hier verlinkt werden.

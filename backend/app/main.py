@@ -1,11 +1,11 @@
-"""FastAPI Application – Resovva.ai."""
+"""FastAPI Application – Resovva.de."""
 
 from fastapi import FastAPI
 
 from app.api.v1 import documents, workflows
 
 app = FastAPI(
-    title="Resovva.ai",
+    title="Resovva.de",
     description="Intelligenter Fall-Assistent (LegalTech)",
     version="0.1.0",
 )

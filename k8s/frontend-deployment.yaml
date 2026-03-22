@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: resovva-frontend
+  labels:
+    app: resovva
+    component: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: resovva
+      component: frontend
+  template:
+    metadata:
+      labels:
+        app: resovva
+        component: frontend
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: web
+          image: ghcr.io/PasKemp/resovva-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: resovva-frontend-service
+  labels:
+    component: frontend
+spec:
+  selector:
+    app: resovva
+    component: frontend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: ClusterIP

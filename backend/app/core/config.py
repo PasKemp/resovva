@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     )
 
     # App
-    app_name: str = "Resovva.ai"
+    app_name: str = "Resovva.de"
     debug: bool = False
 
     # Azure OpenAI (DSGVO: Azure Germany) – für Production

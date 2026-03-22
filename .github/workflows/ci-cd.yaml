@@ -19,6 +19,9 @@ jobs:
     name: Unit & Integration Tests
     # WICHTIG: Hier sagen wir, dass es auf DEINEM Server laufen soll
     runs-on: [self-hosted, linux]
+    defaults:
+      run:
+        working-directory: backend
 
     steps:
       - name: Checkout Code
@@ -29,6 +32,7 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip' # Caching beschleunigt den Build enorm
+          cache-dependency-path: backend/pyproject.toml
 
       - name: Install Dependencies
         run: |
@@ -81,7 +85,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ./backend
+          file: ./backend/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -95,7 +100,7 @@ jobs:
 
           # Update Deployment.yaml on the fly
           # (Im echten Leben nutzt man Kustomize oder Helm, für MVP reicht sed)
-          sed -i "s|image: .*|image: $NEW_IMAGE|g" k8s/deployment.yaml
+          sed -i "s|image: .*|image: $NEW_IMAGE|g" k8s/backend-deployment.yaml
 
           # Apply Manifests
           # Der Runner muss Zugriff auf kubectl haben!

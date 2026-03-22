@@ -31,3 +31,7 @@ htmlcov/
 
 # Ruff
 .ruff_cache/
+
+# Frontend (Node / Vite)
+node_modules/
+frontend/dist/

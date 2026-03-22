@@ -1,4 +1,4 @@
-# Resovva.ai – Multi-Stage, Non-Root
+# Resovva.de – Multi-Stage, Non-Root
 # Stage 1: Build (Dependencies)
 FROM python:3.12-slim AS builder
 

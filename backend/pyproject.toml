@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "resovva"
 version = "0.1.0"
-description = "Resovva.ai – Intelligenter Fall-Assistent (LegalTech)"
+description = "Resovva.de – Intelligenter Fall-Assistent (LegalTech)"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Proprietary" }

@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: resovva-api
+  labels:
+    app: resovva
+    component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: resovva
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: resovva
+        component: backend
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: api
+          image: ghcr.io/PasKemp/resovva:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          env:
+            - name: QDRANT_HOST
+              value: "qdrant-service"
+            - name: AZURE_OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: resovva-secrets
+                  key: azure-key
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: resovva-service
+  labels:
+    component: backend
+spec:
+  selector:
+    app: resovva
+    component: backend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+  type: ClusterIP
