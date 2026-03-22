@@ -33,9 +33,15 @@ services:
   backend:
     build:
       context: ./backend
+      target: dev
     command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
     environment:
       PYTHONPATH: /app
+      DATABASE_URL: postgresql://resovva:password@postgres:5432/resovva
+      POSTGRES_CHECKPOINT_URL: postgresql://resovva:password@postgres:5432/resovva
+      ALLOWED_ORIGINS: http://localhost:5173
+      SECRET_KEY: local-dev-secret-key-change-in-production
+      QDRANT_URL: http://qdrant:6333
     volumes:
       - ./backend/app:/app/app
     ports:

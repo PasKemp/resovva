@@ -74,33 +74,109 @@ Der Agent führt folgende Schritte autonom oder semi-autonom durch:
 
 ## 4. Lokale Entwicklung
 
-### Docker Compose (empfohlen)
+### Voraussetzungen
 
-Im Repository-Root:
+- **Docker Desktop** (für Infrastruktur und optionalen Full-Stack-Betrieb)
+- **Python 3.12+** und **Node.js 20+** (für lokale Backend-/Frontend-Entwicklung)
 
-```powershell
+---
+
+### Option A: Kompletter Stack via Docker Compose
+
+Startet alle Dienste (Postgres, MinIO, Qdrant, Backend, Frontend) in einem Schritt:
+
+```bash
 docker-compose up --build
 ```
 
-Frontend: http://localhost:5173 · API-Docs: http://localhost:8000/docs
+Tabellen werden beim ersten Backend-Start automatisch erstellt.
 
-### Backend nur mit Python (.venv)
+---
 
-```powershell
+### Option B: Nur Infrastruktur via Docker + Backend lokal (empfohlen für Entwicklung)
+
+**Schritt 1** – Infrastruktur-Dienste starten (Postgres, MinIO, Qdrant — Tabellen werden beim ersten Backend-Start automatisch erstellt):
+
+```bash
+docker-compose up postgres minio qdrant
+```
+
+**Schritt 2** – Backend-Umgebung einrichten:
+
+```bash
 cd backend
-python -m venv ..\.venv
-..\.venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
+python -m venv ../.venv
+source ../.venv/bin/activate        # Windows: ..\.venv\Scripts\activate
+pip install -e ".[dev,postgres]"
+```
+
+**Schritt 3** – `.env`-Datei anlegen:
+
+```bash
+cp .env.example .env
+```
+
+Die `.env` enthält bereits alle lokalen Defaults. Wichtig: `OPENAI_API_KEY` eintragen.
+
+**Schritt 4** – Backend starten:
+
+```bash
 uvicorn app.main:app --reload
 ```
 
-Tests und Lint (im Ordner `backend/`):
+**Schritt 6** – Frontend starten (separates Terminal):
 
-```powershell
+```bash
+cd ../frontend
+npm install
+npm run dev
+```
+
+---
+
+### Dienste & URLs
+
+| Dienst | URL | Zugangsdaten |
+|---|---|---|
+| **Frontend** | http://localhost:5173 | – |
+| **Backend API** | http://localhost:8000 | – |
+| **Swagger / API-Docs** | http://localhost:8000/docs | – |
+| **PostgreSQL** | localhost:5432 | `resovva` / `password` |
+| **MinIO Console** | http://localhost:9001 | `minioadmin` / `minioadmin` |
+| **Qdrant Dashboard** | http://localhost:6333/dashboard | – |
+
+---
+
+### Tests
+
+Alle Tests:
+
+```bash
 cd backend
 pytest tests/ -v
+```
+
+Einzelnen Test ausführen:
+
+```bash
+pytest tests/test_api.py::test_health -v
+```
+
+Nur Tests für ein Modul:
+
+```bash
+pytest tests/test_auth.py -v
+```
+
+---
+
+### Linting
+
+```bash
+cd backend
 ruff check app
 ```
+
 
 ---
 

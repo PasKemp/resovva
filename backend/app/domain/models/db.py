@@ -94,3 +94,20 @@ class ChronologyEvent(Base):
 
     # Relationen
     case: Mapped["Case"] = relationship("Case", back_populates="timeline_events")
+
+
+# -------------------------------------------------------------------
+# 5. PASSWORD_RESET_TOKENS TABELLE (Epic 1: Passwort-Reset-Flow)
+# -------------------------------------------------------------------
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+
+    # SHA-256-Hash des Raw-Tokens (niemals Raw-Token in DB speichern)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

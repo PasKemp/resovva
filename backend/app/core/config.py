@@ -23,6 +23,20 @@ class Settings(BaseSettings):
     app_name: str = "Resovva.de"
     debug: bool = False
 
+    # Database (PostgreSQL – Hauptdatenbank)
+    database_url: Optional[str] = None
+
+    # JWT / Session
+    secret_key: str = "change-me-in-production-use-a-random-256bit-key"
+    jwt_expire_days: int = 7
+
+    # CORS – erlaubte Frontend-Origins (komma-getrennt)
+    allowed_origins: str = "http://localhost:5173"
+
+    # E-Mail (Resend – Passwort-Reset)
+    resend_api_key: Optional[str] = None
+    email_from: str = "noreply@resovva.de"
+
     # Azure OpenAI (DSGVO: Azure Germany) – für Production
     azure_openai_endpoint: Optional[str] = None
     azure_openai_api_key: Optional[str] = None
