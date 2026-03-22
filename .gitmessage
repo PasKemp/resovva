@@ -1,0 +1,30 @@
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+
+# Typ: feat, fix, docs, style, refactor, test, chore
+# Scope: Epic oder Component
+# Subject: Was wurde gemacht (Imperativ, Lowercase, kein Punkt)
+# Body: Detaillierte Erklärung (optional)
+# Footer: Breaking Changes, Closes Issues (optional)
+
+# Beispiel:
+# feat(EPIC1): Implementiere JWT Authentication
+#
+# - Token generieren und validieren
+# - Refresh-Mechanismus
+# - Frontend-Integration
+#
+# Closes TICKET-001
+```
+
+**Speichern unter:** `.gitmessage`
+
+**Konfigurieren:**
+
+```bash
+git config commit.template .gitmessage
+```

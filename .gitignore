@@ -2,6 +2,8 @@
 .venv/
 venv/
 env/
+epics/
+docs/*
 
 # Python
 __pycache__/
@@ -35,3 +37,5 @@ htmlcov/
 # Frontend (Node / Vite)
 node_modules/
 frontend/dist/
+
+.claude*

@@ -1,72 +1,202 @@
-## **🧵 Epic 4: "Der Rote Faden" (Chronology & Gap Analysis)**
+# EPIC 4: "Der Rote Faden" (Chronology & Gap Analysis)
 
-### **📖 Epic Summary**
+## 📋 Überblick
 
-Dieses Epic transformiert unstrukturierte Falldaten in eine präzise, juristisch verwertbare Chronologie. Das System nutzt ein Map-Reduce-Verfahren mit LLMs, um Ereignisse (sowohl aufgedruckte Belegdaten als auch im Text referenzierte Geschehnisse wie Telefonate) aus den Dokumenten zu extrahieren und zeitlich zu ordnen. Eine KI-gestützte "Gap Analysis" deckt Logiklücken auf (fehlende Rechnungen/Mahnungen) und weist den Nutzer als "Soft Blocker" darauf hin. Der Nutzer hat in der UI die volle Kontrolle: Er kann die KI-Timeline bearbeiten, löschen, eigene Ereignisse ohne Beleg hinzufügen oder iterativ fehlende Dokumente nachreichen, woraufhin sich die Timeline intelligent aktualisiert.
+**Beschreibung:**
+Dieses Epic transformiert unstrukturierte Falldaten in eine präzise, juristisch verwertbare Chronologie. Ein Map-Reduce-Verfahren mit LLMs extrahiert Ereignisse aus jedem Dokument (Map) und aggregiert sie zu einer dedizierten Gesamt-Timeline mit Lückenerkennung (Reduce). Der Nutzer hat volle Kontrolle: Bearbeiten, Löschen, eigene Ereignisse hinzufügen und fehlende Dokumente iterativ nachreichen – ohne dass Nutzer-Änderungen je überschrieben werden.
 
-### **📐 Architektur & Tech Notes**
+**Business Value:**
 
-* **LLM Pipeline (Map-Reduce):** \* *Map:* gpt-4o-mini pro Dokument zur Extraktion lokaler Events (Metadaten-Generierung).  
-  * *Reduce:* gpt-4o zur Aggregation, Deduplizierung und Lücken-Erkennung.  
-* **State Management:** Der LangGraph Checkpointer (PostgresSaver) ist hier essenziell. Wenn der Nutzer manuell ein Event hinzufügt oder editiert, wird dies im State mit einem Flag source: user markiert. Löst ein iterativer Upload einen Re-Run aus, instruiert der Prompt die KI, source: user Events unangetastet zu lassen.  
-* **Wording:** Verzicht auf strenges "Amtsdeutsch" bei Lücken. Stattdessen nutzerfreundliche Begriffe wie "Beleg fehlt" oder "Eigene Angabe".
+- Automatische Chronologie spart dem Nutzer stundenlange manuelle Rekonstruktion des Streitfalls
+- Gap Analysis weist proaktiv auf fehlende Belege hin – stärkt die Beweismittellage vor Einreichung
+- Iterativer Upload-Loop ermöglicht schrittweise Vervollständigung ohne Datenverlust
 
-### ---
+**Tech Notes:**
 
-**🎫 Jira User Stories (In Implementierungsreihenfolge)**
+- **Map:** `gpt-4o-mini` pro Dokument → lokale Event-Extraktion (günstig, parallelisierbar)
+- **Reduce:** `gpt-4o` für Aggregation, Deduplizierung und Gap-Erkennung (einmaliger teurer Call)
+- **State Management:** `PostgresSaver` (LangGraph Checkpointer) persistiert Timeline; `source: user`-Flag schützt manuelle Einträge vor KI-Überschreibung
+- **Wording:** Keine Amtssprache – „Beleg fehlt", „Eigene Angabe" statt juristischer Fachbegriffe
 
-#### **🗺️ \[US-4.1\] Event-Extraktion pro Dokument (Map-Phase)**
+**Zeitschätzung:** ~55–65 Stunden
 
-**Story:** Als Systembetreiber möchte ich jedes Dokument einzeln auf Ereignisse scannen, um eine saubere Datenbasis für die Chronologie zu schaffen, ohne teure LLMs zu verschwenden.
+---
 
-**Akzeptanzkriterien (ACs):**
+## 🎯 Tickets in diesem Epic
 
-* \[ \] Ein neuer LangGraph-Node (\_node\_extract\_events) verarbeitet jedes hochgeladene Dokument einzeln.  
-* \[ \] Der Node nutzt gpt-4o-mini mit strukturiertem Output (Pydantic-Liste von ChronologyEvent: Datum, Beschreibung, Quelle).  
-* \[ \] Die KI ist instruiert, sowohl das Erstellungsdatum des Dokuments als auch referenzierte Ereignisse (z.B. "Wie am 12.04. besprochen") zu extrahieren.  
-* \[ \] Die extrahierten Event-Listen werden als Zwischenschritt im AgentState gespeichert.
+### US-4.1: Event-Extraktion pro Dokument (Map-Phase)
 
-#### **🔗 \[US-4.2\] Master-Chronologie & Gap Analysis (Reduce-Phase)**
+**Status:** Backlog
+**Aufwand:** 10 Stunden
+**Assignee:** –
+**Dependencies:** Epic 3 – US-3.5 (bestätigter AgentState liegt vor)
+**Blocking:** US-4.2
 
-**Story:** Als Nutzer möchte ich, dass das System alle meine Dokumente in eine logische, chronologische Reihenfolge bringt und mich auf fehlende Unterlagen hinweist.
+**Beschreibung:**
+Als Systembetreiber möchte ich jedes Dokument einzeln auf Ereignisse scannen, um eine saubere Datenbasis für die Chronologie zu schaffen, ohne teure LLMs zu verschwenden.
 
-**Akzeptanzkriterien (ACs):**
+**Akzeptanzkriterien:**
 
-* \[ \] Ein LangGraph-Node (\_node\_build\_master\_timeline) nimmt alle Event-Listen aus US-4.1 und übergibt sie an gpt-4o.  
-* \[ \] Die KI dedupliziert überschneidende Ereignisse und sortiert sie chronologisch (ältester Eintrag zuerst).  
-* \[ \] **Gap Analysis:** Die KI prüft auf logische Brüche (z.B. Mahnung verweist auf Rechnung, die nicht in den Events existiert).  
-* \[ \] Erkannte Lücken werden als spezielle Einträge in die Chronologie eingefügt (z.B. Flag is\_gap: true, Beschreibung: "Vermutlich fehlendes Dokument: Rechnung vom 01.03.").
+- [ ] Neuer LangGraph-Node `_node_extract_events` verarbeitet jedes hochgeladene Dokument einzeln
+- [ ] Node nutzt `gpt-4o-mini` mit `with_structured_output(List[ChronologyEvent])` (Pydantic)
+- [ ] KI extrahiert sowohl das Erstellungsdatum des Dokuments als auch referenzierte Ereignisse (z.B. „Wie am 12.04. besprochen")
+- [ ] Extrahierte Event-Listen werden als Zwischenschritt im `AgentState` gespeichert
 
-#### **🖥️ \[US-4.3\] UI: Der interaktive "Rote Faden"**
+**Implementierungs-Notizen:**
 
-**Story:** Als Nutzer möchte ich die von der KI erstellte Chronologie sehen, prüfen und bearbeiten können, da nur ich die volle Wahrheit über meinen Fall kenne.
+- Code-Path: `app/agents/nodes/extract_events.py`, `app/agents/state.py`
+- Pydantic-Modell `ChronologyEvent`: `date: date | None`, `description: str`, `source_document_id: str`, `source: Literal["ai", "user"]`
+- Dokumente parallel verarbeiten via `asyncio.gather()` um Latenz zu minimieren
+- Prompt: explizit anweisen, referenzierte Ereignisse (`"am X wurde telefoniert"`) als eigenständige Events zu extrahieren
 
-**Akzeptanzkriterien (ACs):**
+---
 
-* \[ \] Das Frontend pollt den Status und zeigt bei Abschluss die generierte Chronologie als visuelle Zeitstrahl-Komponente oder Tabelle an.  
-* \[ \] Jeder KI-generierte Eintrag hat ein Kontextmenü (Drei Punkte) mit den Optionen "Bearbeiten" und "Löschen".  
-* \[ \] Änderungen des Nutzers senden einen API-Call (PUT /api/v1/cases/{case\_id}/timeline), der den Graph-State aktualisiert und das Event als source: user markiert.  
-* \[ \] Lücken (Gaps) werden visuell hervorgehoben (z.B. gelbes Warn-Icon: "Hier fehlt uns ein Beleg. Du kannst ihn nachreichen oder ignorieren.").
+### US-4.2: Master-Chronologie & Gap Analysis (Reduce-Phase)
 
-#### **✍️ \[US-4.4\] UI: Manuelle Ereignisse hinzufügen (ohne Beleg)**
+**Status:** Backlog
+**Aufwand:** 12 Stunden
+**Assignee:** –
+**Dependencies:** US-4.1
+**Blocking:** US-4.3, US-4.5
 
-**Story:** Als Nutzer möchte ich wichtige Ereignisse (z.B. Telefonate, Haustürgespräche) manuell in die Chronologie eintragen können, auch wenn ich kein Papierdokument dafür habe.
+**Beschreibung:**
+Als Nutzer möchte ich, dass das System alle meine Dokumente in eine logische, chronologische Reihenfolge bringt und mich auf fehlende Unterlagen hinweist.
 
-**Akzeptanzkriterien (ACs):**
+**Akzeptanzkriterien:**
 
-* \[ \] Die Chronologie-UI bietet einen Button "Ereignis hinzufügen".  
-* \[ \] Ein Modal öffnet sich mit den Pflichtfeldern: Datum (Datepicker) und Beschreibung (Text).  
-* \[ \] Nach dem Speichern wird das Ereignis chronologisch korrekt in die Ansicht einsortiert.  
-* \[ \] Im finalen Daten-State wird dieses Ereignis als "Eigene Angabe (ohne Beleg)" markiert, um juristische Transparenz im Dossier zu wahren.
+- [ ] LangGraph-Node `_node_build_master_timeline` nimmt alle Event-Listen aus US-4.1 und übergibt sie an `gpt-4o`
+- [ ] KI dedupliziert überschneidende Ereignisse und sortiert chronologisch (ältester Eintrag zuerst)
+- [ ] **Gap Analysis:** KI prüft auf logische Brüche (z.B. Mahnung verweist auf Rechnung die nicht existiert)
+- [ ] Erkannte Lücken werden als spezielle Einträge eingefügt: `is_gap: true`, Beschreibung: „Vermutlich fehlendes Dokument: Rechnung vom 01.03."
 
-#### **🔄 \[US-4.5\] Die "Zurück-Schleife" (Iterativer Upload)**
+**Implementierungs-Notizen:**
 
-**Story:** Als Nutzer möchte ich, wenn das System mich auf eine Lücke hinweist, das fehlende Dokument hochladen können, woraufhin sich die Chronologie automatisch aktualisiert.
+- Code-Path: `app/agents/nodes/build_master_timeline.py`
+- Modell: `gpt-4o` (kein Mini – Reduce-Phase braucht höhere Reasoning-Qualität für Deduplizierung)
+- Prompt-Instruktion: Events mit `source: user` sind unveränderlich – niemals anpassen, löschen oder zusammenführen
+- Gap-Typen die erkannt werden sollen: fehlende Rechnung vor Mahnung, fehlende Mahnung vor Inkasso, fehlende Kündigung vor Neuvertrag
+- Master-Timeline in DB persistieren: `cases.timeline` (JSONB-Feld)
 
-**Akzeptanzkriterien (ACs):**
+---
 
-* \[ \] Die UI bietet bei erkannten Gaps einen Button "Fehlendes Dokument hochladen".  
-* \[ \] Ein Klick öffnet den Upload-Flow aus Epic 2 (inklusive QR-Code-Option fürs Handy).  
-* \[ \] Sobald das neue Dokument verarbeitet ist (OCR & Masking), wird der LangGraph-Agent an der richtigen Stelle wieder aufgeweckt (resume).  
-* \[ \] Der Agent führt die Map-Reduce-Pipeline (US-4.1 & 4.2) **nur für das neue Dokument** aus und webt die neuen Erkenntnisse in die bestehende Master-Chronologie ein.  
-* \[ \] **Kritisch:** Bereits vom Nutzer bearbeitete, gelöschte oder manuell hinzugefügte Events (source: user) dürfen durch diesen Re-Run **nicht** überschrieben oder gelöscht werden\!
+### US-4.3: UI – Der interaktive „Rote Faden"
+
+**Status:** Backlog
+**Aufwand:** 14 Stunden
+**Assignee:** –
+**Dependencies:** US-4.2
+**Blocking:** US-4.4, US-4.5
+
+**Beschreibung:**
+Als Nutzer möchte ich die von der KI erstellte Chronologie sehen, prüfen und bearbeiten können, da nur ich die volle Wahrheit über meinen Fall kenne.
+
+**Akzeptanzkriterien:**
+
+- [ ] Frontend pollt Status und zeigt bei Abschluss die Chronologie als visuelle Zeitstrahl-Komponente oder Tabelle an
+- [ ] Jeder KI-generierte Eintrag hat Kontextmenü (Drei-Punkte) mit Optionen „Bearbeiten" und „Löschen"
+- [ ] Änderungen senden PUT `/api/v1/cases/{case_id}/timeline` → Graph-State aktualisiert, Event als `source: user` markiert
+- [ ] Lücken (Gaps) werden visuell hervorgehoben: gelbes Warn-Icon mit Text „Hier fehlt uns ein Beleg. Du kannst ihn nachreichen oder ignorieren."
+
+**Implementierungs-Notizen:**
+
+- Code-Path: Frontend: `components/Timeline.tsx`, `app/api/routes/timeline.py` (PUT /timeline)
+- UI-Komponente: chronologische Liste mit Datum links, Beschreibung rechts, Icon für Typ (Dokument / Telefonat / Gap)
+- `source: user`-Events: visuell mit Badge „Eigene Angabe" kennzeichnen
+- Gap-Einträge: gelber Hintergrund, kein Kontextmenü „Löschen" (nur „Ignorieren" + „Dokument hochladen")
+- API: PATCH-Semantik – nur geänderte Felder senden, nicht gesamte Timeline
+
+---
+
+### US-4.4: UI – Manuelle Ereignisse hinzufügen (ohne Beleg)
+
+**Status:** Backlog
+**Aufwand:** 6 Stunden
+**Assignee:** –
+**Dependencies:** US-4.3
+**Blocking:** –
+
+**Beschreibung:**
+Als Nutzer möchte ich wichtige Ereignisse (z.B. Telefonate, Haustürgespräche) manuell in die Chronologie eintragen können, auch wenn ich kein Papierdokument dafür habe.
+
+**Akzeptanzkriterien:**
+
+- [ ] Chronologie-UI bietet Button „Ereignis hinzufügen"
+- [ ] Modal öffnet sich mit Pflichtfeldern: Datum (Datepicker) und Beschreibung (Freitext)
+- [ ] Nach Speichern wird Ereignis chronologisch korrekt in die Ansicht einsortiert
+- [ ] Event wird im State als `source: user` + Label „Eigene Angabe (ohne Beleg)" gespeichert – sichtbar im finalen Dossier
+
+**Implementierungs-Notizen:**
+
+- Code-Path: Frontend: `components/AddEventModal.tsx`, API: POST `/api/v1/cases/{case_id}/timeline`
+- Datepicker: keine Zukunftsdaten erlauben (Datum muss ≤ heute sein)
+- Beschreibung: max. 500 Zeichen, Pflichtfeld
+- Chronologische Einsortierung im Frontend nach Datum (kein Re-Render der gesamten Liste nötig, lokales State-Update)
+
+---
+
+### US-4.5: Die „Zurück-Schleife" (Iterativer Upload)
+
+**Status:** Backlog
+**Aufwand:** 14 Stunden
+**Assignee:** –
+**Dependencies:** US-4.2, US-4.3
+**Blocking:** Epic 5 (Dossier-Generierung)
+
+**Beschreibung:**
+Als Nutzer möchte ich, wenn das System mich auf eine Lücke hinweist, das fehlende Dokument hochladen können, woraufhin sich die Chronologie automatisch aktualisiert.
+
+**Akzeptanzkriterien:**
+
+- [ ] Gap-Einträge in der UI bieten Button „Fehlendes Dokument hochladen"
+- [ ] Klick öffnet Upload-Flow aus Epic 2 (inkl. QR-Code-Option)
+- [ ] Nach OCR & Masking wird LangGraph-Agent an richtiger Stelle aufgeweckt (resume)
+- [ ] Agent führt Map-Reduce-Pipeline (US-4.1 + US-4.2) **nur für das neue Dokument** aus und webt Erkenntnisse in die bestehende Master-Timeline ein
+- [ ] **Kritisch:** Events mit `source: user` werden durch den Re-Run unter keinen Umständen überschrieben, gelöscht oder zusammengeführt
+
+**Implementierungs-Notizen:**
+
+- Code-Path: `app/agents/nodes/incremental_update.py`, Frontend: Wiederverwendung der Upload-Komponenten aus Epic 2
+- Resume-Punkt: `graph.update_state()` mit neuem Dokument-Context + Bestehender Timeline
+- Prompt für Reduce-Re-Run: `"Die folgende Timeline ist bereits bestätigt. Füge nur neue, nicht bereits vorhandene Ereignisse hinzu. Events mit source=user sind UNVERÄNDERLICH."`
+- Merge-Strategie: neues Event wird eingefügt wenn `date + description` nicht auf existierendes Event matchen (simple Duplikat-Erkennung)
+
+---
+
+## ✅ Definition of Done (für alle Tickets)
+
+- [ ] Code geschrieben (Backend + Frontend)
+- [ ] Tests schreiben (Unit + Integration)
+- [ ] Code Review bestanden (≥2 Approvals)
+- [ ] Linting: 0 Errors
+- [ ] Test Coverage: ≥80%
+- [ ] Dokumentation aktualisiert (JSDoc/Docstrings)
+- [ ] Security Review durchgeführt
+- [ ] Performance-Tests bestanden
+- [ ] Git-Commit mit aussagekräftiger Nachricht
+- [ ] Changelog aktualisiert
+
+---
+
+## 🔗 Abhängigkeiten & Blockierung
+
+```
+US-4.1 (Event-Extraktion / Map)
+├─ Abhängig von: Epic 3 – US-3.5 (bestätigter AgentState)
+├─ Blocking für: US-4.2
+
+US-4.2 (Master-Chronologie & Gap Analysis / Reduce)
+├─ Abhängig von: US-4.1
+├─ Blocking für: US-4.3, US-4.5
+
+US-4.3 (Interaktive Timeline UI)
+├─ Abhängig von: US-4.2
+├─ Blocking für: US-4.4, US-4.5
+
+US-4.4 (Manuelle Ereignisse hinzufügen)
+├─ Abhängig von: US-4.3
+├─ Blocking für: –
+
+US-4.5 (Iterativer Upload / Zurück-Schleife)
+├─ Abhängig von: US-4.2, US-4.3
+├─ Blocking für: Epic 5 (Dossier-Generierung)
+```
