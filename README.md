@@ -1,74 +1,71 @@
 # Resovva.de
 
-**Projekt-Spezifikation** – Intelligenter Fall-Assistent (LegalTech).
+**KI-gestützter LegalTech-Service** – hilft Verbrauchern bei Streitigkeiten mit Energieversorgern.
 
 ---
 
 ## Inhaltsverzeichnis
 
-1. [Executive Summary](#1-executive-summary)
-2. [Technisches Anforderungsprofil](#2-technisches-anforderungsprofil-context-for-dev-ai)
-3. [Kern-Workflow: „Der Rote Faden“](#3-kern-workflow-der-rote-faden)
-4. [Lokale Entwicklung (.venv)](#4-lokale-entwicklung-venv)
-5. [Dokumentation](#5-dokumentation)
+1. [Produkt](#1-produkt)
+2. [Implementierungsstand](#2-implementierungsstand)
+3. [Stack](#3-stack)
+4. [Lokale Entwicklung](#4-lokale-entwicklung)
+5. [Tests](#5-tests)
+6. [Dokumentation](#6-dokumentation)
 
 ---
 
-## 1. Executive Summary
+## 1. Produkt
 
-Resovva.de ist ein **KI-gestützter LegalTech-Service**, der Endverbrauchern hilft, komplexe Streitigkeiten mit Stromanbietern und Netzbetreibern (z.B. Abrechnungsfehler, PV-Probleme, Anbieterwechsel) effizient zu lösen. Das System fungiert als intelligenter Fall-Assistent, der Dokumente analysiert, eine Chronologie erstellt und ein professionelles Beschwerde-Dossier für Behörden oder Schlichtungsstellen generiert.
+Resovva führt Nutzer durch Streitigkeiten mit Stromanbietern und Netzbetreibern (Abrechnungsfehler, PV-Probleme, Anbieterwechsel). Der KI-Agent analysiert hochgeladene Dokumente, baut eine Chronologie auf, identifiziert Lücken und generiert ein professionelles Beschwerde-Dossier für Behörden oder Schlichtungsstellen.
 
-| Aspekt          | Beschreibung                                                                                         |
-| --------------- | ---------------------------------------------------------------------------------------------------- |
-| **Preismodell** | 20€ pro Fall (Pay-per-Case).                                                                         |
-| **USP**         | Automatisierte Fallaufbereitung („Der Rote Faden“) und Identifikation der richtigen Zuständigkeiten. |
+**Preismodell:** 20 € pro Fall (Pay-per-Case).
+
+### Kern-Workflow
+
+| Schritt | Beschreibung |
+|---|---|
+| **1. Ingestion** | PDF-Upload → Textextraktion (pypdf → Azure Fallback) |
+| **2. PII-Masking** | IBAN, E-Mail vor LLM-Transfer schwärzen |
+| **3. Entitäten-Extraktion** | MaLo-ID, Zählernummer, Beträge, Daten per GPT-4o |
+| **4. Chronologie** | Zeitlicher Ablauf aus allen Dokumenten |
+| **5. Gap-Analysis** | Fehlende Belege identifizieren, Nutzer um Ergänzung bitten |
+| **6. Dossier** | Strukturiertes PDF-Dossier für Schlichtungsstellen |
 
 ---
 
-## 2. Technisches Anforderungsprofil (Context for Dev-AI)
+## 2. Implementierungsstand
 
-Kontext: Senior Software-Entwickler (7+ Jahre Erfahrung). Geplanter Stack:
+| Epic | Beschreibung | Status |
+|---|---|---|
+| **Epic 1** | Auth, Sessions, Multi-Case-Dashboard, DSGVO Hard-Delete | ✅ Vollständig |
+| **Epic 2** | Dokument-Upload, OCR, PII-Masking, QR-Code-Upload | 🚧 In Arbeit (US-2.1 ✅) |
+| **Epic 3** | LangGraph-Agent, Entitäten-Extraktion, Chronologie | 📋 Backlog |
+| **Epic 4** | Gap-Analysis, Nutzer-Feedback-Loop | 📋 Backlog |
+| **Epic 5** | Stripe-Zahlung (Pay-per-Case) | 📋 Backlog |
+| **Epic 6** | PDF-Dossier-Generierung | 📋 Backlog |
+
+---
+
+## 3. Stack
 
 ### Backend
 
-- **Python 3.12+** mit **FastAPI**.
+- **Python 3.12+** · **FastAPI** · **SQLAlchemy** · **PostgreSQL 15**
+- **LangGraph** – stateful KI-Agent (Knoten: ingest → extract → chronology → gaps)
+- **GPT-4o** – Azure OpenAI (Produktion, DSGVO) · Standard OpenAI (Entwicklung)
+- **Qdrant** – Vektordatenbank für Dokument-Embeddings
+- **MinIO** – S3-kompatibler Objektspeicher (lokal); AWS S3 / Azure Blob (Produktion)
 
-### KI-Orchestrierung
+### Frontend
 
-- **LangChain** oder **LangGraph** (für stateful, zyklische Agenten-Workflows).
+- **React 18** · **TypeScript** · **Vite** · **Material-UI**
 
-### RAG-Komponenten
+### DevOps
 
-| Komponente     | Technologie                                                   |
-| -------------- | ------------------------------------------------------------- |
-| **Embeddings** | OpenAI `text-embedding-3-small` (oder lokal via HuggingFace). |
-| **Vektor-DB**  | Qdrant (Deployment im K8s-Cluster).                           |
-| **LLM**        | GPT-4o (via Azure Germany für DSGVO-Konformität).             |
-
-### Infrastructure & DevOps
-
-- **Containerisierung:** Docker.
-- **Orchestrierung:** Kubernetes (K8s).
-- **CI/CD:** Jenkins (automatisierte Build- & Deployment-Pipelines).
-
-### Datenschutz
-
-- **Privacy-by-Design.** PII-Masking vor LLM-Transfer, automatisches Löschen der Daten **30 Tage nach Fallabschluss**.
-
----
-
-## 3. Kern-Workflow: „Der Rote Faden“
-
-Der Agent führt folgende Schritte autonom oder semi-autonom durch:
-
-| Schritt                     | Beschreibung                                                                                                                                                                                               |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1. Ingestion & Parsing**  | Extraktion von Daten aus PDFs (Rechnungen, Verträge) und E-Mails.                                                                                                                                          |
-| **2. Entitäten-Extraktion** | Identifikation von Zählernummern, Marktlokationen (MaLo), Daten und Beträgen.                                                                                                                              |
-| **3. Chronologie-Modul**    | Erstellung eines zeitlichen Ablaufs der Korrespondenz und Ereignisse.                                                                                                                                      |
-| **4. Gap-Analysis**         | Der Agent erkennt fehlende Informationen (z.B. „Einspruchsschreiben vom 15.02. fehlt“) und bittet den User um Ergänzung.                                                                                   |
-| **5. Jurisdiction-Finder**  | Abgleich mit der **MaStR-API** (Marktstammdatenregister), um den exakten Netzbetreiber zu finden.                                                                                                          |
-| **6. Dossier-Generation**   | Erstellung eines strukturierten PDF-Dossiers inklusive: Sachverhaltsdarstellung, chronologische Beweismittel-Auflistung, konkrete Forderung (basierend auf hinterlegten AGB-Standards/Gesetzes-Templates). |
+- **Docker Compose** – lokale Entwicklungsumgebung
+- **Kubernetes** – Produktions-Deployment (`k8s/`)
+- **GitHub Actions** – CI/CD (pytest → Docker Build → Push zu GHCR)
 
 ---
 
@@ -76,32 +73,30 @@ Der Agent führt folgende Schritte autonom oder semi-autonom durch:
 
 ### Voraussetzungen
 
-- **Docker Desktop** (für Infrastruktur und optionalen Full-Stack-Betrieb)
-- **Python 3.12+** und **Node.js 20+** (für lokale Backend-/Frontend-Entwicklung)
+- **Docker Desktop**
+- **Python 3.12+** und **Node.js 20+** (für lokale Entwicklung ohne Docker)
 
 ---
 
 ### Option A: Kompletter Stack via Docker Compose
 
-Startet alle Dienste (Postgres, MinIO, Qdrant, Backend, Frontend) in einem Schritt:
-
 ```bash
 docker-compose up --build
 ```
 
-Tabellen werden beim ersten Backend-Start automatisch erstellt.
+Alle Dienste starten automatisch. Tabellen werden beim ersten Backend-Start angelegt.
 
 ---
 
-### Option B: Nur Infrastruktur via Docker + Backend lokal (empfohlen für Entwicklung)
+### Option B: Infrastruktur via Docker + Backend lokal (empfohlen)
 
-**Schritt 1** – Infrastruktur-Dienste starten (Postgres, MinIO, Qdrant — Tabellen werden beim ersten Backend-Start automatisch erstellt):
+**Schritt 1** – Infrastruktur starten:
 
 ```bash
 docker-compose up postgres minio qdrant
 ```
 
-**Schritt 2** – Backend-Umgebung einrichten:
+**Schritt 2** – Python-Umgebung einrichten:
 
 ```bash
 cd backend
@@ -110,13 +105,12 @@ source ../.venv/bin/activate        # Windows: ..\.venv\Scripts\activate
 pip install -e ".[dev,postgres]"
 ```
 
-**Schritt 3** – `.env`-Datei anlegen:
+**Schritt 3** – `.env` anlegen:
 
 ```bash
 cp .env.example .env
+# OPENAI_API_KEY eintragen
 ```
-
-Die `.env` enthält bereits alle lokalen Defaults. Wichtig: `OPENAI_API_KEY` eintragen.
 
 **Schritt 4** – Backend starten:
 
@@ -124,7 +118,7 @@ Die `.env` enthält bereits alle lokalen Defaults. Wichtig: `OPENAI_API_KEY` ein
 uvicorn app.main:app --reload
 ```
 
-**Schritt 6** – Frontend starten (separates Terminal):
+**Schritt 5** – Frontend starten (separates Terminal):
 
 ```bash
 cd ../frontend
@@ -138,37 +132,49 @@ npm run dev
 
 | Dienst | URL | Zugangsdaten |
 |---|---|---|
-| **Frontend** | http://localhost:5173 | – |
-| **Backend API** | http://localhost:8000 | – |
-| **Swagger / API-Docs** | http://localhost:8000/docs | – |
+| **Frontend** | <http://localhost:5173> | – |
+| **Backend API** | <http://localhost:8000> | – |
+| **Swagger / Docs** | <http://localhost:8000/docs> | – |
 | **PostgreSQL** | localhost:5432 | `resovva` / `password` |
-| **MinIO Console** | http://localhost:9001 | `minioadmin` / `minioadmin` |
-| **Qdrant Dashboard** | http://localhost:6333/dashboard | – |
+| **MinIO S3 API** | <http://localhost:9000> | `minioadmin` / `minioadmin` |
+| **MinIO Console** | <http://localhost:9001> | `minioadmin` / `minioadmin` |
+| **Qdrant Dashboard** | <http://localhost:6333/dashboard> | – |
 
 ---
 
-### Tests
+## 5. Tests
 
-Alle Tests:
+Voraussetzung: PostgreSQL läuft (via Docker Compose). Die Test-DB `resovva_test` wird automatisch angelegt.
 
 ```bash
 cd backend
+
+# Alle Tests
 pytest tests/ -v
-```
 
-Einzelnen Test ausführen:
-
-```bash
-pytest tests/test_api.py::test_health -v
-```
-
-Nur Tests für ein Modul:
-
-```bash
+# Nur ein Modul
 pytest tests/test_auth.py -v
+
+# Einzelner Test
+pytest tests/test_auth.py::test_login_success -v
 ```
 
----
+### Test-Struktur
+
+| Datei | Inhalt | Tests |
+|---|---|---|
+| `test_security.py` | `hash_password`, JWT, Reset-Token, PII-Masking | 25 |
+| `test_auth.py` | Register, Login, Logout, `/me`, Passwort-Reset | 25 |
+| `test_cases.py` | Dashboard, Tenant-Isolation, DSGVO Hard-Delete | 15 |
+| `test_api.py` | Health-Check | 1 |
+
+Ohne laufendes PostgreSQL werden DB-Tests automatisch übersprungen (`SKIPPED`), Security-Unit-Tests laufen weiterhin durch.
+
+Eigene Test-DB-URL setzen:
+
+```bash
+TEST_DATABASE_URL=postgresql://user:pass@host:5432/mydb pytest tests/ -v
+```
 
 ### Linting
 
@@ -177,16 +183,13 @@ cd backend
 ruff check app
 ```
 
-
 ---
 
-## 5. Dokumentation
+## 6. Dokumentation
 
-| Dokument                                                          | Inhalt                                           |
-| ----------------------------------------------------------------- | ------------------------------------------------ |
-| [00_VISION.md](docs/00_VISION.md)                                 | Produktvision, MVP-Scope, technische Leitplanken |
-| [01_TECHNICAL_ARCHITECTURE.md](docs/01_TECHNICAL_ARCHITECTURE.md) | Repo-Struktur, Stack, Dev-Workflow               |
-| [API-DESIGN.md](docs/API-DESIGN.md)                               | API-Oberfläche / Endpunkte (Entwurf)             |
-| [epics/](docs/epics/)                                             | Epics EPIC1–EPIC6                                |
-
-Hinweis: Ältere oder ausgelagerte Docs (z. B. User Flow, Data Schema, Backlog) können bei Bedarf wieder unter `docs/` ergänzt und hier verlinkt werden.
+| Dokument | Inhalt |
+|---|---|
+| [docs/00_VISION.md](docs/00_VISION.md) | Produktvision, MVP-Scope, Leitplanken |
+| [docs/01_TECHNICAL_ARCHITECTURE.md](docs/01_TECHNICAL_ARCHITECTURE.md) | Repo-Struktur, Stack, Dev-Workflow |
+| [docs/02_API-DESIGN.md](docs/02_API-DESIGN.md) | API-Endpunkte (Spezifikation) |
+| [docs/epics/](docs/epics/) | EPIC1–EPIC6 mit User Stories und Akzeptanzkriterien |
