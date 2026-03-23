@@ -1,0 +1,136 @@
+"""
+StorageService – S3-kompatibler Objektspeicher für Dokumente.
+
+Nutzt boto3 gegen MinIO (lokale Entwicklung) oder AWS S3 (Produktion).
+Der Bucket wird beim ersten Zugriff automatisch erstellt falls nicht vorhanden.
+
+Config (.env):
+  S3_ENDPOINT    – MinIO-Dev: http://minio:9000 | AWS: https://s3.amazonaws.com
+  S3_ACCESS_KEY  – Access Key (MinIO: minioadmin)
+  S3_SECRET_KEY  – Secret Key (MinIO: minioadmin)
+  S3_BUCKET_NAME – Bucket-Name (z.B. resovva-docs)
+
+Datei-Pfade im Bucket folgen dem Schema: {case_id}/{uuid}.{ext}
+"""
+
+import logging
+from typing import Optional
+
+import boto3
+from botocore.exceptions import ClientError
+
+from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+
+class StorageService:
+    """S3-kompatibler Objektspeicher (MinIO / AWS S3 / Wasabi)."""
+
+    def __init__(self) -> None:
+        settings = get_settings()
+        self._bucket = settings.s3_bucket_name
+        self._client = boto3.client(
+            "s3",
+            endpoint_url=settings.s3_endpoint,
+            aws_access_key_id=settings.s3_access_key,
+            aws_secret_access_key=settings.s3_secret_key,
+            region_name="us-east-1",  # MinIO ignoriert die Region
+        )
+        self._ensure_bucket()
+
+    def _ensure_bucket(self) -> None:
+        """Erstellt den Bucket falls er noch nicht existiert (idempotent)."""
+        try:
+            self._client.head_bucket(Bucket=self._bucket)
+        except ClientError as exc:
+            code = exc.response["Error"]["Code"]
+            if code in ("404", "NoSuchBucket"):
+                self._client.create_bucket(Bucket=self._bucket)
+                logger.info("S3-Bucket erstellt: %s", self._bucket)
+            else:
+                raise
+
+    def upload_file(
+        self,
+        data: bytes,
+        key: str,
+        content_type: str = "application/octet-stream",
+    ) -> str:
+        """
+        Lädt Datei-Bytes in den Bucket hoch.
+
+        Args:
+            data:         Dateiinhalt als Bytes.
+            key:          Pfad im Bucket (z.B. "{case_id}/{uuid}.pdf").
+            content_type: MIME-Type der Datei.
+
+        Returns:
+            Den S3-Key für spätere Zugriffe.
+        """
+        self._client.put_object(
+            Bucket=self._bucket,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+        )
+        logger.debug("Upload: s3://%s/%s (%d Bytes)", self._bucket, key, len(data))
+        return key
+
+    def download_file(self, key: str) -> bytes:
+        """
+        Lädt eine Datei aus dem Bucket herunter.
+
+        Returns:
+            Dateiinhalt als Bytes.
+
+        Raises:
+            FileNotFoundError: Wenn der Key nicht existiert.
+        """
+        try:
+            response = self._client.get_object(Bucket=self._bucket, Key=key)
+            return response["Body"].read()
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] in ("404", "NoSuchKey"):
+                raise FileNotFoundError(f"Datei nicht gefunden: {key}") from exc
+            raise
+
+    def delete_file(self, key: str) -> None:
+        """
+        Löscht eine Datei aus dem Bucket (idempotent – kein Fehler falls nicht vorhanden).
+        """
+        self._client.delete_object(Bucket=self._bucket, Key=key)
+        logger.debug("Gelöscht: s3://%s/%s", self._bucket, key)
+
+    def generate_presigned_url(self, key: str, expires_in: int = 3600) -> str:
+        """
+        Generiert eine zeitlich begrenzte Download-URL (z.B. für das Dossier).
+
+        Args:
+            key:        S3-Key der Datei.
+            expires_in: Gültigkeitsdauer in Sekunden (Standard: 1 Stunde).
+
+        Returns:
+            Presigned URL als String.
+        """
+        return self._client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self._bucket, "Key": key},
+            ExpiresIn=expires_in,
+        )
+
+
+# ── Lazy Singleton ────────────────────────────────────────────────────────────
+
+_storage: Optional[StorageService] = None
+
+
+def get_storage() -> StorageService:
+    """
+    Gibt die globale StorageService-Instanz zurück (Lazy Singleton).
+    Erstellt Boto3-Client und prüft/erstellt den Bucket beim ersten Aufruf.
+    """
+    global _storage
+    if _storage is None:
+        _storage = StorageService()
+    return _storage

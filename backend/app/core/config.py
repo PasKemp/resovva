@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     azure_document_intelligence_endpoint: Optional[str] = None
     azure_document_intelligence_key: Optional[str] = None
 
+    # S3 / MinIO Storage (Epic 2)
+    s3_endpoint: str = "http://localhost:9000"
+    s3_access_key: str = "minioadmin"
+    s3_secret_key: str = "minioadmin"
+    s3_bucket_name: str = "resovva-docs"
+
     # Privacy
     data_retention_days: int = 30
 

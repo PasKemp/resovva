@@ -125,11 +125,11 @@ def delete_case(
 
 def _delete_from_storage(case: Case) -> None:
     """Löscht alle Dokument-Dateien des Falls aus MinIO/S3."""
+    from app.infrastructure.storage import get_storage
+    storage = get_storage()
     for document in case.documents:
         try:
-            # TODO (Epic 2): MinIO/S3-Client implementieren und Datei löschen
-            # storage_client.delete_object(bucket="resovva-docs", key=document.s3_key)
-            logger.debug("Storage-Delete (Stub) für: %s", document.s3_key)
+            storage.delete_file(document.s3_key)
         except Exception as exc:
             # Storage-Fehler loggen, aber nicht abbrechen – DB-Cleanup hat Vorrang
             logger.error("Fehler beim Löschen aus Storage (%s): %s", document.s3_key, exc)
