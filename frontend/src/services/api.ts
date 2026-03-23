@@ -30,7 +30,12 @@ export interface LoginPayload    { email: string; password: string; }
 export interface RegisterPayload { email: string; password: string; accepted_terms: boolean; }
 export interface AuthResponse    { status: string; user_id: string; message?: string; }
 
+export interface MeResponse { user_id: string; email: string; }
+
 export const authApi = {
+  me: () =>
+    apiFetch<MeResponse>("/api/v1/auth/me"),
+
   login: (payload: LoginPayload) =>
     apiFetch<AuthResponse>("/api/v1/auth/login", {
       method: "POST",

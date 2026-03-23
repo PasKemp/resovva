@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  appType: "spa", // enables SPA HTML fallback — unknown paths serve index.html without redirect
   server: {
     port: 5173,
     proxy: {

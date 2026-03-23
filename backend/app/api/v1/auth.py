@@ -155,6 +155,16 @@ def login(request: Request, body: LoginRequest, response: Response, db: Session 
     return {"status": "success", "user_id": str(user.id)}
 
 
+@router.get("/me")
+def me(current_user: CurrentUser):
+    """
+    Gibt die Daten des aktuell eingeloggten Nutzers zurück.
+    Wird vom Frontend beim App-Start aufgerufen, um den Session-Status zu prüfen.
+    401 wenn kein gültiges Cookie vorhanden.
+    """
+    return {"user_id": str(current_user.id), "email": current_user.email}
+
+
 @router.post("/logout")
 def logout(response: Response, _: CurrentUser):
     """Löscht das Session-Cookie und beendet die Session."""
