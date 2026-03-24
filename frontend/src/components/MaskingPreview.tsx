@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { colors, textStyles, typography } from "../theme/tokens";
 import { Button } from "./Button";
-import { caseStatusApi, caseAnalyzeApi } from "../services/api";
+import { caseStatusApi } from "../services/api";
 import type { CaseStatusResponse } from "../services/api";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47,11 +47,9 @@ interface MaskingPreviewProps {
 }
 
 export const MaskingPreview = ({ caseId, onNext }: MaskingPreviewProps) => {
-  const [status,       setStatus]       = useState<CaseStatusResponse["status"] | null>(null);
-  const [preview,      setPreview]      = useState<string | null>(null);
-  const [dots,         setDots]         = useState(".");
-  const [startingNext, setStartingNext] = useState(false);
-  const [nextError,    setNextError]    = useState<string | null>(null);
+  const [status,  setStatus]  = useState<CaseStatusResponse["status"] | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [dots,    setDots]    = useState(".");
 
   // Animierte Punkte während Verarbeitung
   useEffect(() => {
@@ -205,28 +203,9 @@ export const MaskingPreview = ({ caseId, onNext }: MaskingPreviewProps) => {
       )}
 
       {/* Weiter-Button */}
-      {nextError && (
-        <p style={{ ...textStyles.small, color: colors.redText, marginBottom: 8 }}>
-          {nextError}
-        </p>
-      )}
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <Button
-          onClick={async () => {
-            setStartingNext(true);
-            setNextError(null);
-            try {
-              await caseAnalyzeApi.start(caseId);
-              onNext();
-            } catch (err) {
-              setNextError(err instanceof Error ? err.message : "Analyse konnte nicht gestartet werden.");
-              setStartingNext(false);
-            }
-          }}
-          size="lg"
-          disabled={startingNext}
-        >
-          {startingNext ? "Wird gestartet…" : "Weiter zur Fall-Analyse →"}
+        <Button onClick={onNext} size="lg">
+          Weiter zur Fall-Analyse →
         </Button>
       </div>
     </div>

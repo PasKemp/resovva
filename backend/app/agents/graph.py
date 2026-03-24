@@ -1,154 +1,238 @@
 """
-Definition des LangGraph-Graphen (Nodes & Edges).
+LangGraph-Graph – EPIC 3: KI-Analyse & Extraktion.
 
-Two-Pass: Erst Strukturieren (Parsing, Entitäten, Chronologie, Gaps),
-dann ggf. Dossier-Generierung.
+Flow:
+  load_docs → extract → [check_missing] → mastr_lookup
+                         ↘ missing_data → END (WAITING_FOR_USER via DB)
+                                            ↓
+                                    [interrupt_before confirm]
+                                            ↓
+                                         confirm → END
+
+Interrupt-Punkt: vor 'confirm' (US-3.5 Human-in-the-Loop).
+Resume: POST /cases/{case_id}/analysis/confirm → graph.ainvoke(None, config)
 """
 
-from pathlib import Path
+from __future__ import annotations
 
-from langchain_core.prompts import ChatPromptTemplate
-from langgraph.graph import StateGraph, END
+import logging
+import uuid as _uuid
 
+from langgraph.graph import END, StateGraph
+from langgraph.graph.state import CompiledStateGraph
+
+from app.agents.nodes.extract import check_missing_data, node_extract
+from app.agents.nodes.mastr_lookup import node_mastr_lookup
 from app.agents.state import AgentState
-from app.core.security import mask_pii
-from app.domain.models.document import ExtractedEntity
-from app.domain.services.pdf_parsing import extract_text_from_pdf_async
-from app.infrastructure.azure_openai import get_llm
-from app.infrastructure.checkpointer import get_checkpointer
 
-UPLOAD_DIR = Path("/tmp/resovva_uploads")
+logger = logging.getLogger(__name__)
 
 
-def _format_llm_error(exc: Exception) -> str:
-    """Formatiert LLM-Fehler lesbar und mit typischen Lösungen."""
-    msg = str(exc).strip() or type(exc).__name__
-    hint = ""
-    if "connection" in msg.lower() or "connect" in msg.lower():
-        hint = " (Prüfe: OPENAI_API_KEY in .env, Internet/Proxy, bei Azure: AZURE_OPENAI_ENDPOINT ohne trailing slash)"
-    elif "401" in msg or "unauthorized" in msg.lower():
-        hint = " (API-Key ungültig oder abgelaufen; bei OpenAI: Billing/Guthaben prüfen)"
-    elif "timeout" in msg.lower():
-        hint = " (Antwort zu langsam; ggf. kürzerer Text oder Timeout in Config erhöhen)"
-    return f"{msg}{hint}"
+# ── Load-Docs-Node ─────────────────────────────────────────────────────────────
 
 
-async def _node_ingest(state: AgentState) -> AgentState:
-    """Node: Liest PDFs ein, extrahiert Text, maskiert PII."""
-    case_id = state["case_id"]
-    files = list(UPLOAD_DIR.glob(f"{case_id}_*"))
+async def _node_load_docs(state: AgentState) -> AgentState:
+    """
+    Lädt maskierte Texte aller abgeschlossenen Dokumente des Falls aus der DB.
 
-    if not files:
-        messages = (state.get("messages") or []) + ["System: Keine Dateien gefunden."]
-        return {**state, "current_step": "ingest_error", "messages": messages}
+    Legt den vollständigen Dokument-Corpus als letzten messages-Eintrag ab –
+    dient als Fallback wenn Qdrant/RAG nicht erreichbar ist.
+    """
+    from app.domain.models.db import Document
+    from app.infrastructure.database import get_db_context
 
-    processed_docs = []
-    full_text_corpus = ""
-
-    for file_path in files:
-        raw_text = await extract_text_from_pdf_async(file_path)
-        safe_text = mask_pii(raw_text)
-
-        doc_meta = {
-            "id": file_path.name,
-            "filename": file_path.name.replace(f"{case_id}_", ""),
-            "type": "unknown",
-            "content_preview": safe_text[:200],
+    messages = state.get("messages") or []
+    try:
+        case_uuid = _uuid.UUID(state["case_id"])
+    except (ValueError, KeyError):
+        return {
+            **state,
+            "current_step": "load_error",
+            "messages": messages + ["System: Ungültige Case-ID."],
         }
-        processed_docs.append(doc_meta)
-        full_text_corpus += f"\n--- DOKUMENT: {doc_meta['filename']} ---\n{safe_text}\n"
 
-    messages = (state.get("messages") or []) + [
-        f"System: Ingestion abgeschlossen.\n{full_text_corpus}"
-    ]
+    with get_db_context() as db:
+        docs = (
+            db.query(Document)
+            .filter(
+                Document.case_id == case_uuid,
+                Document.ocr_status == "completed",
+                Document.masked_text.isnot(None),
+            )
+            .all()
+        )
+
+    if not docs:
+        logger.warning("load_docs: Keine abgeschlossenen Dokumente für Case %s.", case_uuid)
+        return {
+            **state,
+            "current_step": "load_error",
+            "messages": messages + ["System: Keine verarbeiteten Dokumente gefunden."],
+        }
+
+    corpus = "\n\n".join(f"--- {d.filename} ---\n{d.masked_text}" for d in docs)
+    logger.info("load_docs: %d Dokumente für Case %s geladen.", len(docs), case_uuid)
 
     return {
         **state,
-        "documents": processed_docs,
-        "current_step": "ingest",
-        "messages": messages,
+        "current_step": "load_docs",
+        "messages": messages + [corpus],
     }
 
 
-async def _node_extract(state: AgentState) -> AgentState:
-    """Node: LLM-basierte Entitäten-Extraktion (MaLo, Zähler, Beträge)."""
+# ── Confirm-Node ───────────────────────────────────────────────────────────────
+
+
+async def _node_confirm(state: AgentState) -> AgentState:
+    """
+    Speichert die vom Nutzer bestätigten Daten in case.extracted_data.
+
+    Wird nach dem Human-in-the-Loop-Interrupt ausgeführt (US-3.5).
+    Die bestätigten skalaren Felder im State wurden durch
+    graph.update_state() vom Resume-Endpoint gesetzt.
+    """
+    from app.domain.models.db import Case
+    from app.infrastructure.database import get_db_context
+
+    case_id = state["case_id"]
     messages = state.get("messages") or []
-    if not messages:
-        return {**state, "current_step": "extract_error"}
-
-    context_text = messages[-1]
-
-    prompt = ChatPromptTemplate.from_messages([
-        (
-            "system",
-            "Du bist ein präziser Legal-AI-Assistent. Extrahiere aus den folgenden "
-            "Dokumententexten die Metadaten: Marktlokations-ID (MaLo), Zählernummer, "
-            "streitiger Betrag in EUR, Vertragsbeginn/-ende. Antworte nur mit den "
-            "extrahierten Feldern, fehlende Werte als null.",
-        ),
-        ("human", "{text}"),
-    ])
 
     try:
-        llm = get_llm()
-        structured_llm = llm.with_structured_output(ExtractedEntity)
-        chain = prompt | structured_llm
+        case_uuid = _uuid.UUID(case_id)
+    except ValueError:
+        return state
 
-        extraction_result: ExtractedEntity = await chain.ainvoke({"text": context_text})
+    confirmed = {
+        "meter_number": state.get("meter_number"),
+        "malo_id": state.get("malo_id"),
+        "dispute_amount": state.get("dispute_amount"),
+        "currency": state.get("currency"),
+        "network_operator": state.get("network_operator"),
+        "confirmed": True,
+    }
 
-        return {
-            **state,
-            "current_step": "extract",
-            "extracted_entities": extraction_result.model_dump(),
-            "messages": messages + [
-                f"AI: Extrahierte Daten: {extraction_result.model_dump_json()}"
-            ],
-        }
-    except Exception as e:
-        err_detail = _format_llm_error(e)
-        return {
-            **state,
-            "current_step": "extract_error",
-            "messages": messages + [f"System: LLM-Extraktion fehlgeschlagen: {err_detail}"],
-        }
+    with get_db_context() as db:
+        case = db.query(Case).filter(Case.id == case_uuid).first()
+        if case:
+            case.extracted_data = confirmed
+            # Status zurücksetzen (Epic 4 wird hier weiterführen)
+            case.status = "DRAFT"
+            db.commit()
+            logger.info("Case %s: Daten bestätigt und gespeichert.", case_uuid)
 
-
-def _node_chronology(state: AgentState) -> AgentState:
-    """Node: Chronologie bauen (Roter Faden)."""
-    return {**state, "current_step": "chronology"}
-
-
-def _node_gaps(state: AgentState) -> AgentState:
-    """Node: Gap-Analysis – fehlende Belege identifizieren."""
-    return {**state, "current_step": "gaps"}
+    return {
+        **state,
+        "current_step": "confirmed",
+        "messages": messages + ["System: Daten vom Nutzer bestätigt und gespeichert."],
+    }
 
 
-def _route_after_gaps(state: AgentState) -> str:
-    """Conditional: Bei fehlenden Infos auf User warten, sonst beenden."""
-    missing = state.get("missing_info") or []
-    if missing:
-        return "wait_for_user"
-    return "end"
+# ── Missing-Data-Handler ───────────────────────────────────────────────────────
 
 
-def build_graph():
-    """Erstellt den kompilierten LangGraph-Graphen mit Checkpointer."""
+async def _node_missing_data(state: AgentState) -> AgentState:
+    """
+    Setzt case.status = WAITING_FOR_USER und speichert leere extracted_data.
+    Wird traversiert wenn BEIDE Kerndaten (MaLo + Zähler) fehlen (US-3.3).
+    """
+    from datetime import datetime, timezone
+
+    from app.domain.models.db import Case
+    from app.infrastructure.database import get_db_context
+
+    case_id = state["case_id"]
+    messages = state.get("messages") or []
+
+    try:
+        case_uuid = _uuid.UUID(case_id)
+    except ValueError:
+        return state
+
+    with get_db_context() as db:
+        case = db.query(Case).filter(Case.id == case_uuid).first()
+        if case:
+            case.extracted_data = {
+                "meter_number": None,
+                "malo_id": None,
+                "dispute_amount": state.get("dispute_amount"),
+                "currency": state.get("currency"),
+                "network_operator": None,
+                "extracted_at": datetime.now(timezone.utc).isoformat(),
+                "confirmed": False,
+                "missing_data": True,
+            }
+            case.status = "WAITING_FOR_USER"
+            db.commit()
+            logger.info("Case %s: fehlende Kerndaten – Status → WAITING_FOR_USER.", case_uuid)
+
+    return {
+        **state,
+        "current_step": "missing_data",
+        "messages": messages + [
+            "System: Zählernummer und MaLo-ID nicht gefunden. Nutzer-Eingabe erforderlich."
+        ],
+    }
+
+
+# ── Graph-Builder ──────────────────────────────────────────────────────────────
+
+
+def build_graph(checkpointer) -> CompiledStateGraph:
+    """
+    Erstellt und kompiliert den LangGraph-Analyseagenten.
+
+    Args:
+        checkpointer: AsyncPostgresSaver (Prod) oder MemorySaver (Dev/Tests).
+
+    interrupt_before=["confirm"]:
+      Nach mastr_lookup pausiert der Graph vor _node_confirm.
+      Resume via: graph.update_state(config, confirmed_data) + graph.ainvoke(None, config)
+    """
     graph = StateGraph(AgentState)
 
-    graph.add_node("ingest", _node_ingest)
-    graph.add_node("extract", _node_extract)
-    graph.add_node("chronology", _node_chronology)
-    graph.add_node("gaps", _node_gaps)
+    graph.add_node("load_docs", _node_load_docs)
+    graph.add_node("extract", node_extract)
+    graph.add_node("missing_data", _node_missing_data)
+    graph.add_node("mastr_lookup", node_mastr_lookup)
+    graph.add_node("confirm", _node_confirm)
 
-    graph.set_entry_point("ingest")
-    graph.add_edge("ingest", "extract")
-    graph.add_edge("extract", "chronology")
-    graph.add_edge("chronology", "gaps")
+    graph.set_entry_point("load_docs")
+    graph.add_edge("load_docs", "extract")
+
+    # US-3.3: Early-Exit wenn beide Kerndaten fehlen
     graph.add_conditional_edges(
-        "gaps",
-        _route_after_gaps,
-        {"wait_for_user": END, "end": END},
+        "extract",
+        check_missing_data,
+        {
+            "missing_data": "missing_data",
+            "mastr_lookup": "mastr_lookup",
+        },
+    )
+    graph.add_edge("missing_data", END)
+    graph.add_edge("mastr_lookup", "confirm")
+
+    return graph.compile(
+        checkpointer=checkpointer,
+        interrupt_before=["confirm"],  # US-3.5: Human-in-the-Loop
     )
 
-    checkpointer = get_checkpointer()
-    return graph.compile(checkpointer=checkpointer)
+
+# ── Async Lazy Singleton ───────────────────────────────────────────────────────
+
+_agent_app: CompiledStateGraph | None = None
+
+
+async def get_agent_app() -> CompiledStateGraph:
+    """
+    Liefert den kompilierten Agenten (Lazy Init, async).
+
+    Beim ersten Aufruf wird der Checkpointer im laufenden Event-Loop erstellt
+    (AsyncPostgresSaver benötigt asyncio.get_running_loop()).
+    """
+    global _agent_app
+    if _agent_app is None:
+        from app.infrastructure.checkpointer import create_async_checkpointer
+
+        checkpointer = await create_async_checkpointer()
+        _agent_app = build_graph(checkpointer)
+    return _agent_app

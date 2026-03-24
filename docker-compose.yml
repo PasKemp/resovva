@@ -39,8 +39,6 @@ services:
       PYTHONPATH: /app
       DATABASE_URL: postgresql://resovva:password@postgres:5432/resovva
       POSTGRES_CHECKPOINT_URL: postgresql://resovva:password@postgres:5432/resovva
-      # Vite proxies all /api/* requests so the browser never calls the backend
-      # directly — CORS only needs to cover the Vite dev server itself.
       ALLOWED_ORIGINS: http://localhost:5173
       SECRET_KEY: local-dev-secret-key-change-in-production
       QDRANT_URL: http://qdrant:6333

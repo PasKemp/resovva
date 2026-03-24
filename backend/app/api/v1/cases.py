@@ -1,15 +1,17 @@
 """
-Cases Router – Epic 1 (US-1.6 & US-1.7): Multi-Case Dashboard & DSGVO Hard-Delete.
+Cases Router – Epic 1–3.
 
 Endpunkte:
-  GET    /cases                    – Alle Fälle des eingeloggten Nutzers (Dashboard)
-  POST   /cases                    – Neuen leeren Fall anlegen
-  DELETE /cases/{case_id}          – Fall + alle Daten permanent löschen (DSGVO)
-  POST   /cases/{case_id}/analyze  – KI-Analyse starten (Epic 3)
-  GET    /cases/{case_id}/status   – Verarbeitungsfortschritt abfragen
+  GET    /cases                           – Dashboard-Liste
+  POST   /cases                           – Neuen Fall anlegen
+  DELETE /cases/{case_id}                 – DSGVO Hard-Delete
+  POST   /cases/{case_id}/analyze         – KI-Analyse starten (Epic 3, async)
+  GET    /cases/{case_id}/analysis/result – Extraktionsergebnis pollen
+  PUT    /cases/{case_id}/analysis/confirm– Daten bestätigen (HiTL, US-3.5)
+  GET    /cases/{case_id}/status          – OCR-Verarbeitungsfortschritt
 
-Mandantenfähigkeit: Alle Queries filtern nach user_id des authentifizierten Nutzers.
-Sicherheit: Fremde case_id → 404 (nicht 403), kein Informationsleak.
+Mandantenfähigkeit: Alle Queries filtern nach user_id.
+Sicherheit: Fremde case_id → 404 (kein Informationsleak).
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ import logging
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -71,6 +73,30 @@ class CaseAnalyzeResponse(BaseModel):
 
     status: str
     message: str
+
+
+class AnalysisResultResponse(BaseModel):
+    """Response für GET /cases/{case_id}/analysis/result."""
+
+    status: str                          # 'analyzing' | 'waiting_for_user' | 'error'
+    extracted_data: Optional[dict] = None
+    error_message: Optional[str] = None
+
+
+class ConfirmAnalysisRequest(BaseModel):
+    """Request für PUT /cases/{case_id}/analysis/confirm (US-3.5)."""
+
+    meter_number: Optional[str] = None
+    malo_id: Optional[str] = None
+    dispute_amount: Optional[float] = None
+    network_operator: Optional[str] = None
+
+
+class ConfirmAnalysisResponse(BaseModel):
+    """Response für PUT /cases/{case_id}/analysis/confirm."""
+
+    status: str
+    next_step: str
 
 
 class CaseStatusResponse(BaseModel):
@@ -193,26 +219,22 @@ def delete_case(
 
 
 @router.post("/{case_id}/analyze", status_code=202, response_model=CaseAnalyzeResponse)
-def start_analysis(
+async def start_analysis(
     case_id: str,
     current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> CaseAnalyzeResponse:
     """
-    Startet die KI-Analyse des Falls (LangGraph-Agent, Epic 3).
+    Startet die KI-Analyse asynchron als BackgroundTask (Epic 3).
 
-    Voraussetzung: Mindestens ein Dokument vorhanden, alle OCR abgeschlossen.
-
-    Args:
-        case_id: UUID des Falls.
-
-    Returns:
-        CaseAnalyzeResponse: Bestätigung (202 Accepted – Analyse läuft asynchron).
+    Voraussetzung: ≥1 Dokument, alle OCR abgeschlossen.
+    Nach Abschluss: case.status = WAITING_FOR_USER (pollt Frontend via /analysis/result).
 
     Raises:
-        HTTPException 422: Keine Dokumente im Fall.
-        HTTPException 409: Mindestens ein Dokument noch in Verarbeitung.
-        HTTPException 404: Fall nicht gefunden oder gehört anderem Nutzer.
+        HTTPException 422: Keine Dokumente.
+        HTTPException 409: OCR noch nicht abgeschlossen.
+        HTTPException 404: Fall nicht gefunden.
     """
     case = _get_owned_case(case_id, current_user, db)
 
@@ -220,20 +242,164 @@ def start_analysis(
     if not docs:
         raise HTTPException(status_code=422, detail="Keine Dokumente im Fall.")
 
-    pending = [d for d in docs if d.ocr_status in ("pending", "processing")]
-    if pending:
+    # Alle nicht-abgeschlossenen Zustände (inkl. EPIC8-Status-Flow)
+    in_progress = [
+        d for d in docs
+        if d.ocr_status not in ("completed", "error")
+    ]
+    if in_progress:
         raise HTTPException(
             status_code=409,
-            detail=f"{len(pending)} Dokument(e) noch in Verarbeitung. Bitte warten.",
+            detail=f"{len(in_progress)} Dokument(e) noch in Verarbeitung. Bitte warten.",
         )
 
-    # TODO (Epic 3): LangGraph-Agent starten
-    logger.info("Analyse gestartet (Stub): Fall %s", case_id)
+    logger.info("Analyse gestartet: Fall %s", case_id)
+    background_tasks.add_task(_run_analysis_background, case_id)
 
     return CaseAnalyzeResponse(
         status="accepted",
         message="Analyse wurde gestartet.",
     )
+
+
+async def _run_analysis_background(case_id: str) -> None:
+    """Führt den LangGraph-Analyseagenten für einen Fall aus."""
+    from langgraph.errors import GraphInterrupt
+
+    from app.agents.graph import get_agent_app
+
+    logger.info("Analyse-Background-Task gestartet (Case %s).", case_id)
+    config = {"configurable": {"thread_id": case_id}}
+    initial_state: dict = {
+        "case_id": case_id,
+        "messages": [],
+        "documents": [],
+        "extracted_entities": {},
+        "meter_number": None,
+        "malo_id": None,
+        "dispute_amount": None,
+        "currency": None,
+        "network_operator": None,
+        "chronology": [],
+        "missing_info": [],
+        "dossier_ready": False,
+        "payment_status": "pending",
+    }
+    try:
+        agent_app = await get_agent_app()
+        await agent_app.ainvoke(initial_state, config=config)
+    except GraphInterrupt:
+        # Normaler Interrupt – Graph wartet auf Nutzer-Bestätigung (US-3.5).
+        # _persist_to_db hat bereits case.status = WAITING_FOR_USER und extracted_at gesetzt.
+        logger.info("Analyse Case %s: Graph pausiert vor 'confirm' – wartet auf HiTL-Bestätigung.", case_id)
+    except Exception as exc:
+        import traceback
+        logger.error(
+            "Analyse-Background-Task fehlgeschlagen (Case %s): %r\n%s",
+            case_id, exc, traceback.format_exc(),
+        )
+        _set_case_error(case_id)
+
+
+def _set_case_error(case_id: str) -> None:
+    """Setzt case.extracted_data.error bei unbehandeltem Analyse-Fehler."""
+    from app.infrastructure.database import get_db_context
+
+    try:
+        case_uuid = uuid.UUID(case_id)
+    except ValueError:
+        return
+    with get_db_context() as db:
+        case = db.query(Case).filter(Case.id == case_uuid).first()
+        if case:
+            case.extracted_data = {"error": True}
+            db.commit()
+
+
+# ── GET /cases/{case_id}/analysis/result ──────────────────────────────────────
+
+
+@router.get("/{case_id}/analysis/result", response_model=AnalysisResultResponse)
+def get_analysis_result(
+    case_id: str,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+) -> AnalysisResultResponse:
+    """
+    Gibt das Ergebnis der KI-Analyse zurück (US-3.2 / US-3.5 Polling).
+
+    Solange die Analyse noch läuft (kein extracted_data) → 404.
+    Bei WAITING_FOR_USER → extracted_data ist befüllt, Frontend zeigt Form.
+
+    Raises:
+        HTTPException 404: Analyse noch nicht abgeschlossen.
+    """
+    case = _get_owned_case(case_id, current_user, db)
+
+    data = case.extracted_data or {}
+    if not data or ("extracted_at" not in data and "missing_data" not in data and "error" not in data):
+        raise HTTPException(status_code=404, detail="Analyse noch nicht abgeschlossen.")
+
+    if data.get("error"):
+        return AnalysisResultResponse(
+            status="error",
+            error_message="Analyse fehlgeschlagen. Bitte erneut starten.",
+        )
+
+    return AnalysisResultResponse(
+        status="waiting_for_user",
+        extracted_data=data,
+    )
+
+
+# ── PUT /cases/{case_id}/analysis/confirm ─────────────────────────────────────
+
+
+@router.put("/{case_id}/analysis/confirm", response_model=ConfirmAnalysisResponse)
+async def confirm_analysis(
+    case_id: str,
+    payload: ConfirmAnalysisRequest,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+) -> ConfirmAnalysisResponse:
+    """
+    Bestätigt die extrahierten Daten (Human-in-the-Loop, US-3.5).
+
+    Aktualisiert den LangGraph-State mit den vom Nutzer bestätigten Daten
+    und setzt die Graph-Ausführung fort (→ _node_confirm).
+
+    Raises:
+        HTTPException 404: Fall nicht gefunden.
+        HTTPException 409: Analyse noch nicht bereit für Bestätigung.
+    """
+    from app.agents.graph import get_agent_app
+
+    case = _get_owned_case(case_id, current_user, db)
+
+    if case.status != "WAITING_FOR_USER":
+        raise HTTPException(
+            status_code=409,
+            detail="Fall ist nicht im Status WAITING_FOR_USER.",
+        )
+
+    config = {"configurable": {"thread_id": case_id}}
+    confirmed_update = {
+        "meter_number": payload.meter_number,
+        "malo_id": payload.malo_id,
+        "dispute_amount": payload.dispute_amount,
+        "network_operator": payload.network_operator,
+    }
+    try:
+        agent_app = await get_agent_app()
+        await agent_app.aupdate_state(config, confirmed_update)
+        await agent_app.ainvoke(None, config=config)
+    except Exception as exc:
+        logger.error("Graph-Resume fehlgeschlagen (Case %s): %s", case_id, exc)
+        raise HTTPException(status_code=500, detail="Bestätigung fehlgeschlagen.")
+
+    logger.info("Case %s: Analyse bestätigt (MaLo=%s, Zähler=%s).", case_id, payload.malo_id, payload.meter_number)
+
+    return ConfirmAnalysisResponse(status="confirmed", next_step="timeline")
 
 
 # ── GET /cases/{case_id}/status ───────────────────────────────────────────────
@@ -341,12 +507,17 @@ def _delete_from_storage(case: Case) -> None:
 
 
 def _delete_from_qdrant(case_id: str) -> None:
-    """
-    Löscht Vektor-Embeddings des Falls aus Qdrant.
+    """Löscht alle Vektor-Embeddings des Falls aus Qdrant (DSGVO Hard-Delete)."""
+    from app.core.config import get_settings
+    from app.infrastructure.qdrant_client import delete_by_case
 
-    TODO (Epic 2/3): Qdrant-Client aktivieren und Punkte löschen.
-    """
     try:
-        logger.debug("Qdrant-Delete (Stub) für Case: %s", case_id)
+        settings = get_settings()
+        delete_by_case(
+            collection=settings.qdrant_collection,
+            case_id=case_id,
+            url=settings.qdrant_url,
+            api_key=settings.qdrant_api_key,
+        )
     except Exception as exc:
         logger.error("Fehler beim Löschen aus Qdrant (Case %s): %s", case_id, exc)

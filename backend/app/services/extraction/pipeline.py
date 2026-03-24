@@ -151,6 +151,9 @@ def _run_pipeline(doc: Document, db: Session) -> None:
         len(masked),
     )
 
+    # US-3.1: RAG-Einbettung (non-blocking – schlägt still fehl wenn Qdrant unavailable)
+    _embed_document(doc, masked)
+
 
 def _run_llamaparse(
     doc: Document,
@@ -210,6 +213,27 @@ def _run_llamaparse(
 
     except Exception as exc:
         raise LlamaParseGenericError(f"Unerwarteter LlamaParse-Fehler: {exc}") from exc
+
+
+def _embed_document(doc: Document, masked_text: str) -> None:
+    """
+    Bettet den maskierten Text in Qdrant ein (US-3.1).
+
+    Wird nach erfolgreichem Masking aufgerufen. Schlägt still fehl
+    wenn Qdrant oder OpenAI-Embeddings nicht konfiguriert sind.
+    """
+    try:
+        from app.core.rag import chunk_and_embed
+
+        count = chunk_and_embed(
+            document_id=str(doc.id),
+            case_id=str(doc.case_id),
+            text=masked_text,
+        )
+        if count:
+            logger.info("RAG: %d Chunks für Dokument %s eingebettet.", count, doc.id)
+    except Exception as exc:
+        logger.warning("RAG-Einbettung fehlgeschlagen (Doc %s): %s – wird übersprungen.", doc.id, exc)
 
 
 def _log_llamaparse_usage(db: Session, page_count: int) -> None:

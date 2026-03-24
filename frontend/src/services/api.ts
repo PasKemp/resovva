@@ -7,6 +7,17 @@
 
 import type { ApiCase, ExtractedData, TimelineEvent } from "../types";
 
+export interface AnalysisResultResponse {
+  status:          "analyzing" | "waiting_for_user" | "error";
+  extracted_data?: ExtractedData & {
+    currency?:     string | null;
+    confirmed?:    boolean;
+    extracted_at?: string;
+    missing_data?: boolean;
+  };
+  error_message?: string | null;
+}
+
 // Empty string → relative URLs → requests go through the Vite dev-server proxy.
 // This means the phone (accessing via local-network IP) hits the same Vite proxy
 // and never needs to reach the backend directly — no CORS issues, no IP config.
@@ -219,15 +230,14 @@ export const caseAnalyzeApi = {
     }),
 };
 
-// ── Analysis ──────────────────────────────────────────────────────────────────
+// ── Analysis (Epic 3) ─────────────────────────────────────────────────────────
 
 export const analysisApi = {
-  start:   (caseId: string) =>
-    apiFetch<{ job_id: string }>(`/api/v1/cases/${caseId}/analysis`, { method: "POST" }),
+  /** Pollt das Extraktionsergebnis (404 wenn noch laufend). */
+  result: (caseId: string) =>
+    apiFetch<AnalysisResultResponse>(`/api/v1/cases/${caseId}/analysis/result`),
 
-  result:  (caseId: string) =>
-    apiFetch<ExtractedData>(`/api/v1/cases/${caseId}/analysis/result`),
-
+  /** Bestätigt die vom Nutzer geprüften Daten (HiTL, US-3.5). */
   confirm: (caseId: string, data: ExtractedData) =>
     apiFetch<{ status: string; next_step: string }>(`/api/v1/cases/${caseId}/analysis/confirm`, {
       method: "PUT",

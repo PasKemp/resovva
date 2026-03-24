@@ -48,10 +48,12 @@ export interface UploadedFile {
   date: string;
 }
 
+/** Extrahierte und vom Nutzer bestätigbare Fall-Kerndaten (US-3.2 / US-3.5). */
 export interface ExtractedData {
-  malo: string;
-  zaehlerNr: string;
-  betrag: string;
+  malo_id:          string | null;
+  meter_number:     string | null;
+  dispute_amount:   number | null;
+  network_operator: string | null;
 }
 
 export interface TimelineEvent {
