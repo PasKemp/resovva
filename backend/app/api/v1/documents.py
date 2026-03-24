@@ -15,7 +15,7 @@ Sicherheit:
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import CurrentUser
@@ -67,10 +67,11 @@ def _get_owned_case(case_id: str, current_user, db: Session) -> Case:
 
 @router.post("/{case_id}/documents", status_code=201)
 async def upload_document(
-    case_id:      str,
-    current_user: CurrentUser,
-    db:           Session = Depends(get_db),
-    file:         UploadFile = File(...),
+    case_id:          str,
+    current_user:     CurrentUser,
+    background_tasks: BackgroundTasks,
+    db:               Session = Depends(get_db),
+    file:             UploadFile = File(...),
 ):
     """
     Lädt ein Dokument in den S3-Bucket hoch und legt einen DB-Eintrag an.
@@ -124,11 +125,16 @@ async def upload_document(
     db.commit()
     db.refresh(document)
 
+    # OCR + PII-Masking asynchron im Hintergrund starten (US-2.4)
+    from app.workers.ocr_worker import run_ocr
+    background_tasks.add_task(run_ocr, str(doc_id))
+
     logger.info("Dokument hochgeladen: %s (Fall: %s)", doc_id, case_id)
     return {
         "document_id": str(document.id),
         "filename":    document.filename,
         "s3_key":      document.s3_key,
+        "ocr_status":  document.ocr_status,
         "status":      "stored",
     }
 
@@ -147,10 +153,11 @@ def list_documents(
     return {
         "documents": [
             {
-                "document_id":    str(d.id),
-                "filename":       d.filename,
-                "document_type":  d.document_type,
-                "created_at":     d.created_at.isoformat(),
+                "document_id":   str(d.id),
+                "filename":      d.filename,
+                "document_type": d.document_type,
+                "ocr_status":    d.ocr_status,
+                "created_at":    d.created_at.isoformat(),
             }
             for d in case.documents
         ]

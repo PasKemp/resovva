@@ -8,9 +8,9 @@ import type { Page } from "../types";
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface NavProps {
-  page:         Page;
-  setPage:      (p: Page) => void;
-  loggedIn:     boolean;
+  page: Page;
+  setPage: (p: Page) => void;
+  loggedIn: boolean;
 }
 
 const Logo = ({ onClick }: { onClick: () => void }) => (
@@ -40,16 +40,16 @@ const NavPill = ({
   <button
     onClick={onClick}
     style={{
-      background:   active ? colors.orangeLight : "transparent",
-      border:       `1.5px solid ${active ? colors.orange : colors.border}`,
+      background: active ? colors.orangeLight : "transparent",
+      border: `1.5px solid ${active ? colors.orange : colors.border}`,
       borderRadius: 50,
-      padding:      "5px 17px",
-      fontSize:     13,
-      fontWeight:   600,
-      fontFamily:   typography.sans,
-      color:        active ? colors.orange : colors.mid,
-      cursor:       "pointer",
-      transition:   "all .18s",
+      padding: "5px 17px",
+      fontSize: 13,
+      fontWeight: 600,
+      fontFamily: typography.sans,
+      color: active ? colors.orange : colors.mid,
+      cursor: "pointer",
+      transition: "all .18s",
     }}
   >
     {label}
@@ -58,16 +58,16 @@ const NavPill = ({
 
 export const Nav = ({ page, setPage, loggedIn }: NavProps) => (
   <nav style={{
-    background:     colors.white,
-    borderBottom:   `1px solid ${colors.border}`,
-    padding:        "0 32px",
-    height:         60,
-    display:        "flex",
-    alignItems:     "center",
+    background: colors.white,
+    borderBottom: `1px solid ${colors.border}`,
+    padding: "0 32px",
+    height: 60,
+    display: "flex",
+    alignItems: "center",
     justifyContent: "space-between",
-    position:       "sticky",
-    top:            0,
-    zIndex:         200,
+    position: "sticky",
+    top: 0,
+    zIndex: 200,
   }}>
     {/* Left: logo + nav links */}
     <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
@@ -105,14 +105,14 @@ export const Nav = ({ page, setPage, loggedIn }: NavProps) => (
       {!loggedIn && (
         <>
           <div style={{
-            background:   "#F5F5FA",
-            border:       `1px solid ${colors.border}`,
+            background: "#F5EFE6",
+            border: `1px solid ${colors.border}`,
             borderRadius: 50,
-            padding:      "7px 18px",
-            display:      "flex",
-            alignItems:   "center",
-            gap:          8,
-            width:        224,
+            padding: "7px 18px",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            width: 224,
           }}>
             <Icon name="search" size={14} color={colors.muted} />
             <span style={{ ...textStyles.small, color: colors.muted }}>Fälle durchsuchen</span>
@@ -144,7 +144,7 @@ export const Nav = ({ page, setPage, loggedIn }: NavProps) => (
               fontFamily: typography.sans,
               fontSize: 13,
               fontWeight: 700,
-              color: "#fff",
+              color: "#F5EFE6",
             }}
           >
             AM

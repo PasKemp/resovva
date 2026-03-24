@@ -121,6 +121,114 @@ def delete_case(
     return {"status": "success", "message": "Fall wurde dauerhaft gelöscht."}
 
 
+# ── POST /cases/{case_id}/analyze ─────────────────────────────────────────────
+
+@router.post("/{case_id}/analyze", status_code=202)
+def start_analysis(
+    case_id:      str,
+    current_user: CurrentUser,
+    db:           Session = Depends(get_db),
+):
+    """
+    Startet die KI-Analyse des Falls (LangGraph-Agent, Epic 3).
+
+    Wird aufgerufen wenn der Nutzer nach dem OCR-Abschluss auf
+    "Weiter zur Fall-Analyse" klickt (MaskingPreview-Button, US-2.6).
+
+    Status 202 Accepted: Die Analyse läuft asynchron.
+    Vorraussetzung: Fall gehört dem eingeloggten Nutzer (404 sonst).
+    """
+    try:
+        case_uuid = uuid.UUID(case_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Fall nicht gefunden.")
+
+    case = (
+        db.query(Case)
+        .filter(Case.id == case_uuid, Case.user_id == current_user.id)
+        .first()
+    )
+    if not case:
+        raise HTTPException(status_code=404, detail="Fall nicht gefunden.")
+
+    # Prüfen ob überhaupt Dokumente vorhanden und OCR abgeschlossen
+    docs = case.documents
+    if not docs:
+        raise HTTPException(status_code=422, detail="Keine Dokumente im Fall.")
+
+    pending = [d for d in docs if d.ocr_status in ("pending", "processing")]
+    if pending:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{len(pending)} Dokument(e) noch in Verarbeitung. Bitte warten.",
+        )
+
+    # TODO (Epic 3): LangGraph-Agent starten
+    # from app.api.v1.workflows import _run_workflow
+    # background_tasks.add_task(_run_workflow, case_id)
+    logger.info("Analyse gestartet (Stub): Fall %s", case_id)
+
+    return {"status": "accepted", "message": "Analyse wurde gestartet."}
+
+
+# ── GET /cases/{case_id}/status ───────────────────────────────────────────────
+
+@router.get("/{case_id}/status")
+def get_case_status(
+    case_id:      str,
+    current_user: CurrentUser,
+    db:           Session = Depends(get_db),
+):
+    """
+    Gibt den Verarbeitungsfortschritt aller Dokumente eines Falls zurück.
+
+    Aggregierter Status:
+      "processing" – mindestens ein Dokument wird noch verarbeitet
+      "completed"  – alle Dokumente abgeschlossen (OCR fertig)
+      "error"      – mindestens ein Dokument hat einen Fehler
+      "empty"      – keine Dokumente im Fall
+
+    Genutzt vom Frontend für das Status-Polling (US-2.4 + US-2.6).
+    """
+    try:
+        case_uuid = uuid.UUID(case_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Fall nicht gefunden.")
+
+    case = (
+        db.query(Case)
+        .filter(Case.id == case_uuid, Case.user_id == current_user.id)
+        .first()
+    )
+    if not case:
+        raise HTTPException(status_code=404, detail="Fall nicht gefunden.")
+
+    docs = case.documents
+    if not docs:
+        return {"status": "empty", "total": 0, "completed": 0}
+
+    statuses = [d.ocr_status for d in docs]
+    if any(s == "processing" or s == "pending" for s in statuses):
+        agg = "processing"
+    elif any(s == "error" for s in statuses):
+        agg = "error"
+    else:
+        agg = "completed"
+
+    completed_count = sum(1 for s in statuses if s == "completed")
+
+    # masked_text des ersten abgeschlossenen Dokuments als Preview mitliefern
+    preview_doc = next((d for d in docs if d.ocr_status == "completed" and d.masked_text), None)
+    preview = preview_doc.masked_text[:500] if preview_doc else None
+
+    return {
+        "status":    agg,
+        "total":     len(docs),
+        "completed": completed_count,
+        "preview":   preview,
+    }
+
+
 # ── Hilfsfunktionen ───────────────────────────────────────────────────────────
 
 def _delete_from_storage(case: Case) -> None:

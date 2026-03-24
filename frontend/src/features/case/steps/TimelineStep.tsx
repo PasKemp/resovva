@@ -22,11 +22,12 @@ const SOURCE_BADGE_COLOR: Record<TimelineEvent["source"], "teal" | "orange" | "m
 };
 
 interface TimelineStepProps {
+  caseId: string;
   onNext: () => void;
   onBack: () => void;
 }
 
-export const TimelineStep = ({ onNext, onBack }: TimelineStepProps) => {
+export const TimelineStep = ({ caseId: _caseId, onNext, onBack }: TimelineStepProps) => {
   const [events, setEvents] = useState<TimelineEvent[]>(INITIAL_EVENTS);
 
   const addManualEvent = () => {

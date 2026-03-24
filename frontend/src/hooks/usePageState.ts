@@ -19,8 +19,10 @@ interface PageState {
 const detectInitialPage = (fallback: Page): Page => {
   const { pathname, search } = window.location;
   const params = new URLSearchParams(search);
-  // Erkennt /reset-password?token=... (mit oder ohne Pfad, für SPA-Fallback-Szenarien)
-  if (pathname.includes("reset-password") || params.has("token")) return "reset-password";
+  // /mobile-upload?token=... → Smartphone-Scan-Seite (Token-Auth, kein Login nötig)
+  if (pathname.includes("mobile-upload")) return "mobile-upload";
+  // /reset-password?token=... → Passwort-Reset (expliziter Pfad ODER token-Param ohne Pfad-Kontext)
+  if (pathname.includes("reset-password") || (params.has("token") && !pathname.includes("mobile-upload"))) return "reset-password";
   return fallback;
 };
 

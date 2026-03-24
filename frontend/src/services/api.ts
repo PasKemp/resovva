@@ -7,7 +7,11 @@
 
 import type { ApiCase, ExtractedData, TimelineEvent } from "../types";
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+// Empty string → relative URLs → requests go through the Vite dev-server proxy.
+// This means the phone (accessing via local-network IP) hits the same Vite proxy
+// and never needs to reach the backend directly — no CORS issues, no IP config.
+// Override with VITE_API_URL only when running outside Vite (e.g. Storybook, tests).
+const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -101,6 +105,55 @@ export const documentsApi = {
 
   delete: (caseId: string, fileId: string) =>
     apiFetch<void>(`/api/v1/cases/${caseId}/documents/${fileId}`, { method: "DELETE" }),
+};
+
+// ── Mobile Upload ─────────────────────────────────────────────────────────────
+
+export interface UploadTokenResponse { token: string; expires_at: string; upload_url: string; }
+export interface CaseStatusResponse  { status: "processing" | "completed" | "error" | "empty"; total: number; completed: number; preview?: string; }
+export interface DocumentsResponse   { documents: Array<{ document_id: string; filename: string; document_type: string; ocr_status: string; created_at: string; }>; }
+
+export interface TokenInfoResponse { case_id: string; expires_at: string; valid: boolean; }
+
+export const mobileUploadApi = {
+  createToken: (caseId: string) =>
+    apiFetch<UploadTokenResponse>("/api/v1/upload-tokens", {
+      method: "POST",
+      body:   JSON.stringify({ case_id: caseId }),
+    }),
+
+  getTokenInfo: (token: string) =>
+    apiFetch<TokenInfoResponse>(`/api/v1/upload-tokens/${token}/info`),
+
+  uploadFile: (token: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return fetch(`${BASE_URL}/api/v1/mobile-upload?token=${encodeURIComponent(token)}`, {
+      method: "POST",
+      body:   form,
+      // Kein credentials: "include" – Token-Auth, kein Cookie nötig
+    }).then(async (r) => {
+      if (!r.ok) throw new Error(await r.text());
+      return r.json() as Promise<UploadResponse>;
+    });
+  },
+};
+
+export const caseStatusApi = {
+  get: (caseId: string) =>
+    apiFetch<CaseStatusResponse>(`/api/v1/cases/${caseId}/status`),
+
+  listDocuments: (caseId: string) =>
+    apiFetch<DocumentsResponse>(`/api/v1/cases/${caseId}/documents`),
+};
+
+// ── Case Analyze (Epic 2 → Epic 3 Brücke) ─────────────────────────────────────
+
+export const caseAnalyzeApi = {
+  start: (caseId: string) =>
+    apiFetch<{ status: string; message: string }>(`/api/v1/cases/${caseId}/analyze`, {
+      method: "POST",
+    }),
 };
 
 // ── Analysis ──────────────────────────────────────────────────────────────────

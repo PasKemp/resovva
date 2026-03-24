@@ -15,11 +15,12 @@ const DOSSIER_FEATURES = [
 ] as const;
 
 interface CheckoutStepProps {
+  caseId:  string;
   onBack:  () => void;
   setPage: (p: Page) => void;
 }
 
-export const CheckoutStep = ({ onBack, setPage }: CheckoutStepProps) => {
+export const CheckoutStep = ({ caseId: _caseId, onBack, setPage }: CheckoutStepProps) => {
   const [agreed, setAgreed] = useState(false);
 
   return (

@@ -65,6 +65,10 @@ class Document(Base):
     s3_key: Mapped[str] = mapped_column(String(500), nullable=False) # Pfad im MinIO/S3 Bucket
     document_type: Mapped[str] = mapped_column(String(50), default="UNKNOWN") # INVOICE, CONTRACT, etc.
 
+    # Epic 2 (US-2.4 & US-2.5): OCR-Status und maskierter Text
+    ocr_status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | processing | completed | error
+    masked_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # PII-maskierter Klartext
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relationen
@@ -94,6 +98,26 @@ class ChronologyEvent(Base):
 
     # Relationen
     case: Mapped["Case"] = relationship("Case", back_populates="timeline_events")
+
+
+# -------------------------------------------------------------------
+# 5. PASSWORD_RESET_TOKENS TABELLE (Epic 1: Passwort-Reset-Flow)
+# -------------------------------------------------------------------
+# -------------------------------------------------------------------
+# 6. MOBILE_UPLOAD_TOKENS TABELLE (Epic 2 US-2.3: QR-Code-Flow)
+# -------------------------------------------------------------------
+class MobileUploadToken(Base):
+    __tablename__ = "mobile_upload_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    case_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), index=True)
+
+    # SHA-256-Hash des raw tokens (niemals Raw-Token in DB speichern)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 # -------------------------------------------------------------------

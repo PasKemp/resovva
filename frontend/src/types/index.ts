@@ -10,7 +10,8 @@ export type Page =
   | "dossier"
   | "preise"
   | "hilfe"
-  | "reset-password";
+  | "reset-password"
+  | "mobile-upload";
 
 // ── Domain models ─────────────────────────────────────────────────────────────
 

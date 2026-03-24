@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { colors, textStyles, typography } from "../../theme/tokens";
 import { Icon } from "../../components";
 import { UploadStep }   from "./steps/UploadStep";
 import { AnalysisStep } from "./steps/AnalysisStep";
 import { TimelineStep } from "./steps/TimelineStep";
 import { CheckoutStep } from "./steps/CheckoutStep";
+import { casesApi }     from "../../services/api";
 import type { Page, WithSetPage } from "../../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -165,16 +166,45 @@ const ProgressBar = ({ current, onStep, setPage }: ProgressBarProps) => (
 
 // ── CaseFlow ───────────────────────────────────────────────────────────────
 
-export const CaseFlow = ({ setPage }: WithSetPage) => {
-  const [step, setStep] = useState<StepIndex>(0);
+interface CaseFlowProps extends WithSetPage {
+  caseId?: string;
+}
+
+export const CaseFlow = ({ setPage, caseId: initialCaseId }: CaseFlowProps) => {
+  const [step,   setStep]   = useState<StepIndex>(0);
+  const [caseId, setCaseId] = useState<string | null>(initialCaseId ?? null);
+  const [caseError, setCaseError] = useState<string | null>(null);
+
+  // Falls keine caseId übergeben, automatisch neuen Fall anlegen
+  useEffect(() => {
+    if (caseId) return;
+    casesApi.create()
+      .then(r => setCaseId(r.case_id))
+      .catch(() => setCaseError("Fall konnte nicht erstellt werden. Bitte Seite neu laden."));
+  }, []);
 
   const goTo = (i: StepIndex) => {
-    // Only allow navigating to already-visited steps
     if (i <= step) setStep(i);
   };
 
   const next = () => setStep(s => Math.min(s + 1, 3) as StepIndex);
   const back = () => setStep(s => Math.max(s - 1, 0) as StepIndex);
+
+  if (caseError) {
+    return (
+      <div style={{ maxWidth: 720, margin: "0 auto", padding: "48px 24px", textAlign: "center" }}>
+        <p style={{ ...textStyles.body, color: colors.redText }}>{caseError}</p>
+      </div>
+    );
+  }
+
+  if (!caseId) {
+    return (
+      <div style={{ maxWidth: 720, margin: "0 auto", padding: "48px 24px", textAlign: "center" }}>
+        <p style={{ ...textStyles.body, color: colors.muted }}>Fall wird vorbereitet…</p>
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -184,10 +214,10 @@ export const CaseFlow = ({ setPage }: WithSetPage) => {
     }}>
       <ProgressBar current={step} onStep={goTo} setPage={setPage} />
 
-      {step === 0 && <UploadStep   onNext={next} />}
-      {step === 1 && <AnalysisStep onNext={next} onBack={back} />}
-      {step === 2 && <TimelineStep onNext={next} onBack={back} />}
-      {step === 3 && <CheckoutStep onBack={back} setPage={setPage} />}
+      {step === 0 && <UploadStep   caseId={caseId} onNext={next} />}
+      {step === 1 && <AnalysisStep caseId={caseId} onNext={next} onBack={back} />}
+      {step === 2 && <TimelineStep caseId={caseId} onNext={next} onBack={back} />}
+      {step === 3 && <CheckoutStep caseId={caseId} onBack={back} setPage={setPage} />}
     </div>
   );
 };

@@ -5,10 +5,14 @@ Stellt eine synchrone DB-Session via FastAPI Depends() bereit.
 Erwartet DATABASE_URL in den Umgebungsvariablen (z.B. postgresql://user:pass@host/db).
 """
 
+import logging
+from contextlib import contextmanager
 from typing import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
+
+logger = logging.getLogger(__name__)
 
 from app.core.config import get_settings
 
@@ -48,11 +52,56 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+@contextmanager
+def get_db_context() -> Generator[Session, None, None]:
+    """
+    Context-Manager für DB-Sessions außerhalb von FastAPI-Requests.
+    Genutzt von Background-Tasks (z.B. OCR-Worker).
+
+    Usage:
+        with get_db_context() as db:
+            ...
+    """
+    _get_engine()
+    db: Session = _SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
 def create_all_tables() -> None:
     """
-    Erstellt alle Tabellen direkt via SQLAlchemy (für Tests / lokale Entwicklung).
-    In Production: Alembic-Migrationen nutzen.
+    Erstellt alle Tabellen und führt Schema-Migrationen aus.
+
+    create_all() erstellt nur fehlende Tabellen – vorhandene werden nicht
+    verändert. Für neue Spalten in bestehenden Tabellen nutzen wir
+    `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` (idempotent, PostgreSQL 9.6+).
+
+    In Production mit echten DB-Releases: Alembic-Migrationen einsetzen.
     """
     from app.domain.models.db import Base
     engine = _get_engine()
     Base.metadata.create_all(bind=engine)
+    _run_column_migrations(engine)
+
+
+def _run_column_migrations(engine) -> None:
+    """
+    Fügt fehlende Spalten zu bestehenden Tabellen hinzu (idempotent).
+    Wird bei jedem App-Start ausgeführt – keine Aktion wenn Spalte existiert.
+    """
+    migrations = [
+        # Epic 2 (US-2.4 & US-2.5): OCR-Status und maskierter Text in documents
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS ocr_status  VARCHAR(20)  NOT NULL DEFAULT 'pending'",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS masked_text TEXT",
+        # Epic 2 (US-2.3): Mobile-Upload-Token-Tabelle (create_all übernimmt das,
+        # aber zur Sicherheit die kritischen Spalten hier nochmal absichern)
+    ]
+    with engine.begin() as conn:
+        for sql in migrations:
+            try:
+                conn.execute(text(sql))
+                logger.debug("Migration ausgeführt: %s", sql[:60])
+            except Exception as exc:
+                logger.warning("Migration übersprungen (%s): %s", sql[:60], exc)

@@ -4,33 +4,33 @@
 
 export const colors = {
   // Brand
-  orange:      "#F15A24",
+  orange: "#F15A24",
   orangeHover: "#D94E1A",
   orangeLight: "#FEF0EB",
-  teal:        "#2BB5A0",
-  tealLight:   "#E8F7F5",
+  teal: "#2BB5A0",
+  tealLight: "#E8F7F5",
 
   // Neutral
-  dark:   "#1A1A2E",
-  mid:    "#4A4A6A",
-  muted:  "#8A8AAA",
-  border: "#E8E8F0",
-  bg:     "#F7F7FC",
-  white:  "#FFFFFF",
+  dark: "#1A1A2E",
+  mid: "#4A4A6A",
+  muted: "#8A8AAA",
+  border: "#f5efe6e0",
+  bg: "#F5EFE6",
+  white: "#FFFFFF",
 
   // Semantic
-  yellow:       "#FFF3CD",
+  yellow: "#FFF3CD",
   yellowBorder: "#FFCA28",
-  yellowText:   "#92400E",
-  green:        "#E8F5E9",
-  greenText:    "#2E7D32",
-  red:          "#FFEBEE",
-  redText:      "#C62828",
+  yellowText: "#92400E",
+  green: "#E8F5E9",
+  greenText: "#2E7D32",
+  red: "#FFEBEE",
+  redText: "#C62828",
 } as const;
 
 export const typography = {
   display: "'DM Serif Display', Georgia, serif",
-  sans:    "'Plus Jakarta Sans', sans-serif",
+  sans: "'Plus Jakarta Sans', sans-serif",
 } as const;
 
 export const radii = {
@@ -43,7 +43,7 @@ export const radii = {
 } as const;
 
 export const shadows = {
-  card:  "0 2px 12px rgba(0,0,0,.06)",
+  card: "0 2px 12px rgba(0,0,0,.06)",
   modal: "0 16px 64px rgba(0,0,0,.10)",
   hover: "0 8px 32px rgba(0,0,0,.10)",
 } as const;
