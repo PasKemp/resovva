@@ -79,12 +79,14 @@ def _make_minimal_pdf(text: str = "Hello World") -> bytes:
 
 def _make_empty_pdf() -> bytes:
     """PDF das pypdf zwar öffnen kann, aber keinen Text enthält (simuliert Scan)."""
-    return (
-        b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
-        b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
-        b"3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Resources<</Font<<>>>>>>\nendobj\n"
-        b"xref\n0 4\n0000000000 65535 f \ntrailer<</Size 4/Root 1 0 R>>\n%%EOF"
-    )
+    import pypdf
+
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    buf = io.BytesIO()
+    writer.write(buf)
+    buf.seek(0)
+    return buf.read()
 
 
 def _make_jpeg_bytes() -> bytes:
@@ -342,13 +344,6 @@ class TestPipelineStatusFlow:
         # Dokument mit genug Text (alle Seiten > 50 Zeichen)
         rich_pdf = _make_empty_pdf()  # Wir mocken local_extractor
         doc = _make_mock_doc("case/doc.pdf")
-        statuses: list[str] = []
-
-        def set_status(val):
-            statuses.append(val)
-            doc.ocr_status = val
-
-        doc.__setattr__ = lambda self, k, v: set_status(v) if k == "ocr_status" else None
 
         mock_storage = _make_mock_storage(rich_pdf)
         mock_storage_fn.return_value = mock_storage
