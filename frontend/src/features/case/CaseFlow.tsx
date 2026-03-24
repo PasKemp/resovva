@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { colors, textStyles, typography } from "../../theme/tokens";
 import { Icon } from "../../components";
 import { UploadStep } from "./steps/UploadStep";
@@ -211,10 +211,13 @@ const DocumentSidebar = ({ caseId }: { caseId: string }) => {
                   : d.ocr_status === "error" ? colors.redText
                     : colors.muted,
               }}>
-                {d.ocr_status === "completed" ? "✓ Analysiert"
-                  : d.ocr_status === "error" ? "✗ Fehler"
-                    : d.ocr_status === "processing" ? "⏳ Verarbeitung…"
-                      : "⏳ Wartend"}
+                {d.ocr_status === "completed"            ? "✓ Analysiert"
+                  : d.ocr_status === "error"             ? "✗ Fehler"
+                  : d.ocr_status === "masking"           ? "⏳ Maskierung…"
+                  : d.ocr_status === "llama_parse_fallback" ? "⏳ Cloud-Analyse…"
+                  : d.ocr_status === "parsing"           ? "⏳ Extraktion…"
+                  : d.ocr_status === "processing"        ? "⏳ Verarbeitung…"
+                  : "⏳ Wartend"}
               </p>
             </div>
           </div>
@@ -227,13 +230,28 @@ const DocumentSidebar = ({ caseId }: { caseId: string }) => {
 // ── CaseFlow ─────────────────────────────────────────────────────────────────
 
 interface CaseFlowProps extends WithSetPage {
-  caseId?: string;
+  caseId?:         string;
+  initialStep?:    number;
+  onStepChange?:   (step: number) => void;
+  onCaseCreated?:  (caseId: string) => void;
 }
 
-export const CaseFlow = ({ setPage, caseId: initialCaseId }: CaseFlowProps) => {
-  const [step, setStep] = useState<StepIndex>(0);
-  const [caseId, setCaseId] = useState<string | null>(initialCaseId ?? null);
+export const CaseFlow = ({
+  setPage,
+  caseId: initialCaseId,
+  initialStep = 0,
+  onStepChange,
+  onCaseCreated,
+}: CaseFlowProps) => {
+  const [step,      setStep]      = useState<StepIndex>((initialStep as StepIndex) ?? 0);
+  const [caseId,    setCaseId]    = useState<string | null>(initialCaseId ?? null);
   const [caseError, setCaseError] = useState<string | null>(null);
+
+  // Step-Änderungen nach oben melden, damit App.tsx den Stand persistiert
+  useLayoutEffect(() => {
+    onStepChange?.(step);
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Ref-Guard gegen React-StrictMode-Doppel-Invoke: useEffect feuert in DEV
   // zweimal (mount → unmount → remount). Ohne Guard würden 2 Fälle angelegt.
   const hasCreatedRef = useRef(false);
@@ -242,12 +260,17 @@ export const CaseFlow = ({ setPage, caseId: initialCaseId }: CaseFlowProps) => {
     if (caseId || hasCreatedRef.current) return;
     hasCreatedRef.current = true;
     casesApi.create()
-      .then(r => setCaseId(r.case_id))
+      .then(r => {
+        setCaseId(r.case_id);
+        // activeCaseId in App aktualisieren – sonst gilt beim Wiederöffnen
+        // aus der Dashboard-Liste: neueId !== undefined → Step-Reset
+        onCaseCreated?.(r.case_id);
+      })
       .catch(() => {
         hasCreatedRef.current = false; // Reset bei Fehler damit Retry möglich
         setCaseError("Fall konnte nicht erstellt werden. Bitte Seite neu laden.");
       });
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // US-7.7: Zurücknavigation – nur zu bereits besuchten Schritten
   const goTo = (i: StepIndex) => { if (i <= step) setStep(i); };

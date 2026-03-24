@@ -53,6 +53,9 @@ ingest-unstructured = [
 ingest-azure = [
     "azure-ai-documentintelligence>=1.0",
 ]
+llamaparse = [
+    "llama-parse>=0.4",
+]
 
 [project.scripts]
 # resovva-serve = "app.main:run"

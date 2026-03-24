@@ -24,7 +24,9 @@ export default function App() {
   const { page, setPage, loggedIn, setLoggedIn } = usePageState("landing");
   const [authChecking, setAuthChecking] = useState(!NO_AUTH_PAGES.includes(page));
   // Aktive Fall-ID: undefined = neuer Fall anlegen, string = bestehenden Fall öffnen
-  const [activeCaseId, setActiveCaseId] = useState<string | undefined>();
+  const [activeCaseId,   setActiveCaseId]   = useState<string | undefined>();
+  // Step-Persistenz: beim Zurück zur Übersicht und erneutem Öffnen gleicher Fall → selber Schritt
+  const [activeCaseStep, setActiveCaseStep] = useState<number>(0);
 
   const handleLogout = async () => {
     try { await authApi.logout(); } finally {
@@ -35,6 +37,8 @@ export default function App() {
 
   // Navigiert zum CaseFlow – mit bestehender ID (öffnen) oder ohne (neu anlegen)
   const openCase = (caseId?: string) => {
+    // Neuer oder anderer Fall → Step zurücksetzen; selber Fall → Step beibehalten
+    if (caseId !== activeCaseId) setActiveCaseStep(0);
     setActiveCaseId(caseId);
     setPage("case");
   };
@@ -77,7 +81,7 @@ export default function App() {
       case "reset-password":    return <ResetPassword   setPage={setPage} />;
       case "complete-profile":  return <CompleteProfile setPage={setPage} />;
       case "dashboard":         return <Dashboard       setPage={setPage} openCase={openCase} />;
-      case "case":              return <CaseFlow        setPage={setPage} caseId={activeCaseId} />;
+      case "case":              return <CaseFlow        setPage={setPage} caseId={activeCaseId} initialStep={activeCaseStep} onStepChange={setActiveCaseStep} onCaseCreated={setActiveCaseId} />;
       case "dossier":           return <DossierScreen   setPage={setPage} />;
       case "preise":            return <Preise          setPage={setPage} />;
       case "hilfe":             return <Landing         setPage={setPage} />;

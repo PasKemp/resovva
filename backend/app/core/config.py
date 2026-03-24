@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     # Privacy
     data_retention_days: int = 30
 
+    # Text-Extraktion Pipeline (Epic 8)
+    llama_cloud_api_key: Optional[str] = None   # LlamaParse Cloud API Key
+    min_chars_per_page: int = 50                # Fallback-Schwelle für pypdf (MIN_CHARS_PER_PAGE)
+
 
 @lru_cache
 def get_settings() -> Settings:

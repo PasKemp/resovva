@@ -8,6 +8,7 @@ Tabellen:
   chronology_events    – Zeitleiste (Epic 4: Der Rote Faden)
   mobile_upload_tokens – QR-Code-Upload-Token (Epic 2 US-2.3)
   password_reset_tokens – Passwort-Reset-Token (Epic 1)
+  llama_parse_usage    – Free-Tier-Monitoring für LlamaParse (Epic 8 US-8.3)
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -171,8 +172,8 @@ class Document(Base):
         filename: Originaler Dateiname.
         s3_key: Pfad im MinIO/S3-Bucket ({case_id}/{uuid}.{ext}).
         document_type: Klassifizierung (INVOICE, CONTRACT, etc.).
-        ocr_status: Verarbeitungsstatus (pending|processing|completed|error).
-        masked_text: PII-maskierter Klartext nach OCR (US-2.4, US-2.5).
+        ocr_status: Verarbeitungsstatus (pending|parsing|llama_parse_fallback|masking|completed|error).
+        masked_text: PII-maskierter Klartext nach Extraktion (US-2.5, Epic 8).
         created_at: Upload-Zeitpunkt.
     """
 
@@ -187,7 +188,7 @@ class Document(Base):
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     s3_key: Mapped[str] = mapped_column(String(500), nullable=False)
     document_type: Mapped[str] = mapped_column(String(50), default="UNKNOWN")
-    ocr_status: Mapped[str] = mapped_column(String(20), default="pending")
+    ocr_status: Mapped[str] = mapped_column(String(30), default="pending")
     masked_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -306,7 +307,42 @@ class MobileUploadToken(Base):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. PASSWORD_RESET_TOKENS
+# 7. LLAMA_PARSE_USAGE
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class LlamaParseUsage(Base):
+    """
+    Free-Tier-Monitoring für LlamaParse API (Epic 8 US-8.3).
+
+    Logt den täglichen Seitenverbrauch um das kostenlose Tageslimit
+    von 1.000 Seiten im Blick zu behalten.
+
+    Attributes:
+        id: Auto-Increment-Primärschlüssel.
+        date: Datum des Eintrags (eindeutig, ein Eintrag pro Tag).
+        pages_used: Anzahl der an LlamaParse gesendeten Seiten.
+    """
+
+    __tablename__ = "llama_parse_usage"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False, unique=True, index=True)
+    pages_used: Mapped[int] = mapped_column(Integer, default=0)
+
+    def __repr__(self) -> str:
+        return f"<LlamaParseUsage(date={self.date}, pages_used={self.pages_used})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialisiert den Nutzungseintrag für API-Responses."""
+        return {
+            "date": self.date.isoformat(),
+            "pages_used": self.pages_used,
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. PASSWORD_RESET_TOKENS
 # ─────────────────────────────────────────────────────────────────────────────
 
 
