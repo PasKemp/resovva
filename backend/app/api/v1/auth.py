@@ -58,6 +58,12 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     accepted_terms: bool
+    # Pflicht-Profildaten (US-7.3) – für rechtssicheres Dossier benötigt
+    first_name: str
+    last_name: str
+    street: str
+    postal_code: str
+    city: str
 
     @field_validator("password")
     @classmethod
@@ -72,6 +78,21 @@ class RegisterRequest(BaseModel):
         if not v:
             raise ValueError("AGB und Datenschutzerklärung müssen akzeptiert werden.")
         return v
+
+    @field_validator("postal_code")
+    @classmethod
+    def postal_code_format(cls, v: str) -> str:
+        import re
+        if not re.match(r"^\d{5}$", v.strip()):
+            raise ValueError("PLZ muss genau 5 Ziffern haben (z.B. 12345).")
+        return v.strip()
+
+    @field_validator("first_name", "last_name", "street", "city")
+    @classmethod
+    def not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Pflichtfeld darf nicht leer sein.")
+        return v.strip()
 
 
 class LoginRequest(BaseModel):
@@ -114,6 +135,11 @@ def register(body: RegisterRequest, response: Response, db: Session = Depends(ge
         email=body.email,
         hashed_password=hash_password(body.password),
         accepted_terms=body.accepted_terms,
+        first_name=body.first_name,
+        last_name=body.last_name,
+        street=body.street,
+        postal_code=body.postal_code,
+        city=body.city,
     )
     db.add(user)
     db.commit()
@@ -161,8 +187,24 @@ def me(current_user: CurrentUser):
     Gibt die Daten des aktuell eingeloggten Nutzers zurück.
     Wird vom Frontend beim App-Start aufgerufen, um den Session-Status zu prüfen.
     401 wenn kein gültiges Cookie vorhanden.
+
+    profile_complete: True wenn alle Pflichtfelder (US-7.3) ausgefüllt sind.
+    Ist False bei Bestandsnutzern ohne Profildaten → Frontend leitet zu /complete-profile.
     """
-    return {"user_id": str(current_user.id), "email": current_user.email}
+    profile_complete = bool(
+        current_user.first_name and current_user.last_name and
+        current_user.street and current_user.postal_code and current_user.city
+    )
+    return {
+        "user_id":          str(current_user.id),
+        "email":            current_user.email,
+        "first_name":       current_user.first_name,
+        "last_name":        current_user.last_name,
+        "street":           current_user.street,
+        "postal_code":      current_user.postal_code,
+        "city":             current_user.city,
+        "profile_complete": profile_complete,
+    }
 
 
 @router.post("/logout")

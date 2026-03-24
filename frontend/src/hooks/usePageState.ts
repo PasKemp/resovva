@@ -20,7 +20,8 @@ const detectInitialPage = (fallback: Page): Page => {
   const { pathname, search } = window.location;
   const params = new URLSearchParams(search);
   // /mobile-upload?token=... → Smartphone-Scan-Seite (Token-Auth, kein Login nötig)
-  if (pathname.includes("mobile-upload")) return "mobile-upload";
+  if (pathname.includes("mobile-upload"))   return "mobile-upload";
+  if (pathname.includes("complete-profile")) return "complete-profile";
   // /reset-password?token=... → Passwort-Reset (expliziter Pfad ODER token-Param ohne Pfad-Kontext)
   if (pathname.includes("reset-password") || (params.has("token") && !pathname.includes("mobile-upload"))) return "reset-password";
   return fallback;

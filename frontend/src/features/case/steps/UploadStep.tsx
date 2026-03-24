@@ -93,8 +93,11 @@ export const UploadStep = ({ caseId, onNext }: UploadStepProps) => {
         let fileToUpload: File = raw;
 
         // Bilder clientseitig komprimieren (max 2000px, JPEG, Qualität 80%)
+        // Bug-Fix: Original-Dateiname explizit erhalten, da imageCompression
+        // manchmal ein namenloses Blob zurückgibt → "blob" als Dateiname im Backend
         if (raw.type.startsWith("image/")) {
-          fileToUpload = await imageCompression(raw, COMPRESS_OPTIONS);
+          const compressed = await imageCompression(raw, COMPRESS_OPTIONS);
+          fileToUpload = new File([compressed], raw.name, { type: compressed.type });
         }
 
         if (fileToUpload.size > MAX_FILE_BYTES) {
@@ -159,7 +162,12 @@ export const UploadStep = ({ caseId, onNext }: UploadStepProps) => {
               accept=".pdf,.jpg,.jpeg,.png"
               multiple
               style={{ display: "none" }}
-              onChange={e => handleFiles(e.target.files)}
+              onChange={e => {
+                handleFiles(e.target.files);
+                // Bug-Fix: Input-Value resetten damit dieselbe Datei nach dem
+                // Löschen erneut hochgeladen werden kann (onChange feuert sonst nicht)
+                e.target.value = "";
+              }}
             />
             <div
               onDragOver={e  => { e.preventDefault(); setDragging(true); }}

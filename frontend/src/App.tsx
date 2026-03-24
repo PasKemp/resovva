@@ -1,70 +1,64 @@
 import { useEffect, useState } from "react";
-import { Nav }              from "./components/Nav";
-import { Landing }          from "./features/landing/Landing";
-import { Login }            from "./features/auth/Login";
-import { ResetPassword }    from "./features/auth/ResetPassword";
-import { Dashboard }        from "./features/dashboard/Dashboard";
-import { CaseFlow }         from "./features/case/CaseFlow";
-import { DossierScreen }    from "./features/dossier/DossierScreen";
-import { Preise }           from "./features/pricing/Preise";
-import { MobileUploadPage } from "./features/mobile/MobileUploadPage";
-import { usePageState }   from "./hooks/usePageState";
-import { authApi }        from "./services/api";
-import { colors }        from "./theme/tokens";
-import type { Page }      from "./types";
+import { Nav }               from "./components/Nav";
+import { Landing }           from "./features/landing/Landing";
+import { Login }             from "./features/auth/Login";
+import { ResetPassword }     from "./features/auth/ResetPassword";
+import { CompleteProfile }   from "./features/auth/CompleteProfile";
+import { Dashboard }         from "./features/dashboard/Dashboard";
+import { CaseFlow }          from "./features/case/CaseFlow";
+import { DossierScreen }     from "./features/dossier/DossierScreen";
+import { Preise }            from "./features/pricing/Preise";
+import { ProfilePage }       from "./features/profile/ProfilePage";
+import { MobileUploadPage }  from "./features/mobile/MobileUploadPage";
+import { usePageState }      from "./hooks/usePageState";
+import { authApi }           from "./services/api";
+import { colors }            from "./theme/tokens";
+import type { Page }         from "./types";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// App — root component
-//
-// Navigation is intentionally managed via a simple useState hook.
-// When migrating to a real router, replace usePageState() with
-// React Router's <Routes> / <Route> and useNavigate().
-// ─────────────────────────────────────────────────────────────────────────────
-
-const SCREENS: Record<Page, (props: { setPage: (p: Page) => void; setLoggedIn?: (v: boolean) => void }) => JSX.Element> = {
-  landing:          ({ setPage })              => <Landing          setPage={setPage} />,
-  login:            ({ setPage, setLoggedIn }) => <Login            setPage={setPage} setLoggedIn={setLoggedIn!} />,
-  "reset-password": ({ setPage })              => <ResetPassword    setPage={setPage} />,
-  "mobile-upload":  ()                         => <MobileUploadPage />,
-  dashboard:        ({ setPage })              => <Dashboard        setPage={setPage} />,
-  case:             ({ setPage })              => <CaseFlow         setPage={setPage} />,
-  dossier:          ({ setPage })              => <DossierScreen    setPage={setPage} />,
-  preise:           ({ setPage })              => <Preise           setPage={setPage} />,
-  hilfe:            ({ setPage })              => <Landing          setPage={setPage} />,
-};
-
-// Seiten, auf die ein eingeloggter Nutzer beim Start nicht landen soll
+// Seiten ohne Login-Zwang (oder die selbst den Auth-Status prüfen)
+const NO_AUTH_PAGES: Page[] = ["reset-password", "mobile-upload", "complete-profile"];
+// Seiten auf die ein eingeloggter Nutzer beim Start nicht landen soll
 const REDIRECT_ON_AUTH: Page[] = ["landing", "login"];
 
 export default function App() {
   const { page, setPage, loggedIn, setLoggedIn } = usePageState("landing");
+  const [authChecking, setAuthChecking] = useState(!NO_AUTH_PAGES.includes(page));
+  // Aktive Fall-ID: undefined = neuer Fall anlegen, string = bestehenden Fall öffnen
+  const [activeCaseId, setActiveCaseId] = useState<string | undefined>();
 
-  // authChecking: true solange der /me-Check noch läuft.
-  // Verhindert kurzes Aufblitzen der Landingpage bei eingeloggten Nutzern.
-  // Seiten die ohne Login funktionieren – kein Auth-Check nötig
-  const NO_AUTH_PAGES: Page[] = ["reset-password", "mobile-upload"];
+  const handleLogout = async () => {
+    try { await authApi.logout(); } finally {
+      setLoggedIn(false);
+      setPage("landing");
+    }
+  };
 
-  const [authChecking, setAuthChecking] = useState(
-    !NO_AUTH_PAGES.includes(page),
-  );
+  // Navigiert zum CaseFlow – mit bestehender ID (öffnen) oder ohne (neu anlegen)
+  const openCase = (caseId?: string) => {
+    setActiveCaseId(caseId);
+    setPage("case");
+  };
 
   useEffect(() => {
     if (NO_AUTH_PAGES.includes(page)) return;
 
     authApi.me()
-      .then(() => {
+      .then((user) => {
         setLoggedIn(true);
-        if (REDIRECT_ON_AUTH.includes(page)) setPage("dashboard");
+        if (REDIRECT_ON_AUTH.includes(page)) {
+          if (!user.profile_complete) {
+            setPage("complete-profile");
+          } else {
+            setPage("dashboard");
+          }
+        }
       })
-      .catch(() => {
-        setLoggedIn(false);
-      })
-      .finally(() => {
-        setAuthChecking(false);
-      });
-  }, []); // einmalig beim Mount — page ist durch Closure korrekt erfasst
+      .catch(() => setLoggedIn(false))
+      .finally(() => setAuthChecking(false));
+  }, []);
 
-  const Screen = SCREENS[page] ?? SCREENS.landing;
+  // Standalone-Seiten ohne Nav
+  if (page === "mobile-upload") return <MobileUploadPage />;
 
   if (authChecking) {
     return (
@@ -76,17 +70,26 @@ export default function App() {
     );
   }
 
-  // Mobile-Upload ist eine standalone-Seite (kein Nav, kein App-Shell)
-  if (page === "mobile-upload") {
-    return <MobileUploadPage />;
-  }
+  const renderScreen = () => {
+    switch (page) {
+      case "landing":           return <Landing         setPage={setPage} />;
+      case "login":             return <Login           setPage={setPage} setLoggedIn={setLoggedIn} />;
+      case "reset-password":    return <ResetPassword   setPage={setPage} />;
+      case "complete-profile":  return <CompleteProfile setPage={setPage} />;
+      case "dashboard":         return <Dashboard       setPage={setPage} openCase={openCase} />;
+      case "case":              return <CaseFlow        setPage={setPage} caseId={activeCaseId} />;
+      case "dossier":           return <DossierScreen   setPage={setPage} />;
+      case "preise":            return <Preise          setPage={setPage} />;
+      case "hilfe":             return <Landing         setPage={setPage} />;
+      case "profile":           return <ProfilePage     setPage={setPage} />;
+      default:                  return <Landing         setPage={setPage} />;
+    }
+  };
 
   return (
     <div style={{ minHeight: "100vh", background: colors.bg }}>
-      <Nav page={page} setPage={setPage} loggedIn={loggedIn} />
-      <main>
-        <Screen setPage={setPage} setLoggedIn={setLoggedIn} />
-      </main>
+      <Nav page={page} setPage={setPage} loggedIn={loggedIn} onLogout={handleLogout} />
+      <main>{renderScreen()}</main>
     </div>
   );
 }

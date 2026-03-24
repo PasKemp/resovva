@@ -26,6 +26,16 @@ export const colors = {
   greenText: "#2E7D32",
   red: "#FFEBEE",
   redText: "#C62828",
+
+  // Danger (Delete, Errors) — consistent replacement for hardcoded #D9534F
+  danger: "#D9534F",
+  dangerLight: "#FDF2F2",
+  dangerBorder: "#F5C6C5",
+
+  // Warning (Gap-Hinweise) — US-7.1
+  warning: "#F5A623",
+  warningLight: "#FFF8E1",
+  warningBorder: "#FFC107",
 } as const;
 
 export const typography = {

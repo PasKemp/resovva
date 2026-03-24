@@ -31,10 +31,28 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 export interface LoginPayload    { email: string; password: string; }
-export interface RegisterPayload { email: string; password: string; accepted_terms: boolean; }
+export interface RegisterPayload {
+  email:          string;
+  password:       string;
+  accepted_terms: boolean;
+  first_name:     string;
+  last_name:      string;
+  street:         string;
+  postal_code:    string;
+  city:           string;
+}
 export interface AuthResponse    { status: string; user_id: string; message?: string; }
 
-export interface MeResponse { user_id: string; email: string; }
+export interface MeResponse {
+  user_id:          string;
+  email:            string;
+  first_name:       string | null;
+  last_name:        string | null;
+  street:           string | null;
+  postal_code:      string | null;
+  city:             string | null;
+  profile_complete: boolean;
+}
 
 export const authApi = {
   me: () =>
@@ -195,6 +213,38 @@ export const dossierApi = {
 
   status: (caseId: string) =>
     apiFetch<DossierStatus>(`/api/v1/cases/${caseId}/dossier/status`),
+};
+
+// ── User Profile (US-7.4) ─────────────────────────────────────────────────────
+
+export interface UpdateProfilePayload {
+  first_name: string;
+  last_name:  string;
+  street:     string;
+  postal_code: string;
+  city:        string;
+}
+
+export const profileApi = {
+  update: (payload: UpdateProfilePayload) =>
+    apiFetch<{ status: string }>("/api/v1/users/me", {
+      method: "PUT",
+      body:   JSON.stringify(payload),
+    }),
+
+  changePassword: (old_password: string, new_password: string) =>
+    apiFetch<{ status: string }>("/api/v1/users/me/password", {
+      method: "PUT",
+      body:   JSON.stringify({ old_password, new_password }),
+    }),
+
+  deleteAccount: () =>
+    fetch("/api/v1/users/me", {
+      method:      "DELETE",
+      credentials: "include",
+    }).then(r => {
+      if (!r.ok && r.status !== 204) throw new Error(`API ${r.status}`);
+    }),
 };
 
 // ── Checkout ──────────────────────────────────────────────────────────────────

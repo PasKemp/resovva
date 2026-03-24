@@ -148,23 +148,23 @@ export const Landing = ({ setPage }: WithSetPage) => (
       padding:  "0 32px 60px",
       display:  "grid",
       gridTemplateColumns: "repeat(3, 1fr)",
-      gap:      20,
+      gap:      24,                        // US-7.2: 20 → 24px
     }}>
       {HOW_IT_WORKS.map(({ step, icon, title, desc, delay }) => (
-        <Card key={step} hoverable className="fade-up" style={{ animationDelay: delay }}>
+        <Card key={step} hoverable className="fade-up" style={{ animationDelay: delay, minHeight: 180, padding: "28px 24px" }}>
           <div style={{
-            width: 38, height: 38,
+            width: 48, height: 48,          // US-7.2: 38 → 48px
             background:   colors.orangeLight,
-            borderRadius: 9,
+            borderRadius: 12,
             display:      "flex", alignItems: "center", justifyContent: "center",
-            marginBottom: 14,
+            marginBottom: 18,
           }}>
-            <Icon name={icon} size={19} color={colors.orange} />
+            <Icon name={icon} size={24} color={colors.orange} />   {/* US-7.2: 19 → 24px */}
           </div>
-          <h3 style={{ ...textStyles.h3, fontSize: 15, marginBottom: 8 }}>
+          <h3 style={{ ...textStyles.h3, fontSize: 16, marginBottom: 10 }}>
             {step}. {title}
           </h3>
-          <p style={{ ...textStyles.body, fontSize: 13 }}>{desc}</p>
+          <p style={{ ...textStyles.body, fontSize: 14 }}>{desc}</p>
         </Card>
       ))}
     </div>

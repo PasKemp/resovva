@@ -1,49 +1,46 @@
 import { useEffect, useState } from "react";
 import { colors, textStyles, typography } from "../../theme/tokens";
 import { Button, Badge, Card, Icon } from "../../components";
-import { authApi, casesApi } from "../../services/api";
+import { casesApi } from "../../services/api";
 import { mapApiCase } from "../../types";
 import type { Case, CaseStatus, WithSetPage } from "../../types";
 
+interface DashboardProps extends WithSetPage {
+  openCase: (caseId?: string) => void;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Dashboard
+// Dashboard (US-7.5: Sidebar-Navigation & Fall-Vorschau, US-7.6: Delete-Bug-Fix)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const STATUS_COLOR: Record<CaseStatus, "orange" | "yellow" | "teal"> = {
-  Entwurf:                "orange",
-  "Wartet auf Zahlung":   "yellow",
-  Abgeschlossen:          "teal",
+  Entwurf:              "orange",
+  "Wartet auf Zahlung": "yellow",
+  Abgeschlossen:        "teal",
+};
+
+// CTA je Status (US-7.5)
+const STATUS_CTA: Record<CaseStatus, string> = {
+  Entwurf:              "Weiter zur Analyse",
+  "Wartet auf Zahlung": "Daten bestätigen",
+  Abgeschlossen:        "Dossier herunterladen",
 };
 
 // ── Delete-Confirm-Modal ─────────────────────────────────────────────────────
 
 const DeleteModal = ({
-  onConfirm,
-  onCancel,
-  loading,
-}: {
-  onConfirm: () => void;
-  onCancel:  () => void;
-  loading:   boolean;
-}) => (
+  onConfirm, onCancel, loading,
+}: { onConfirm: () => void; onCancel: () => void; loading: boolean }) => (
   <div style={{
-    position:       "fixed",
-    inset:          0,
-    background:     "rgba(0,0,0,.45)",
-    zIndex:         1000,
-    display:        "flex",
-    alignItems:     "center",
-    justifyContent: "center",
+    position: "fixed", inset: 0,
+    background: "rgba(0,0,0,.45)", zIndex: 1000,
+    display: "flex", alignItems: "center", justifyContent: "center",
   }}>
     <div style={{
-      background:   colors.white,
-      borderRadius: 16,
-      padding:      "36px 32px",
-      maxWidth:     440,
-      width:        "90%",
-      boxShadow:    "0 24px 80px rgba(0,0,0,.2)",
+      background: colors.white, borderRadius: 16, padding: "36px 32px",
+      maxWidth: 440, width: "90%", boxShadow: "0 24px 80px rgba(0,0,0,.2)",
     }}>
-      <h3 style={{ ...textStyles.h3, marginBottom: 12, color: "#D9534F" }}>
+      <h3 style={{ ...textStyles.h3, marginBottom: 12, color: colors.danger }}>
         Fall unwiderruflich löschen?
       </h3>
       <p style={{ ...textStyles.body, marginBottom: 28, color: colors.mid }}>
@@ -55,10 +52,8 @@ const DeleteModal = ({
           Abbrechen
         </Button>
         <Button
-          size="md"
-          onClick={onConfirm}
-          disabled={loading}
-          style={{ background: "#D9534F", color: "#fff" }}
+          size="md" onClick={onConfirm} disabled={loading}
+          style={{ background: colors.danger, color: "#fff" }}
         >
           {loading ? "Löschen…" : "Ja, dauerhaft löschen"}
         </Button>
@@ -67,69 +62,193 @@ const DeleteModal = ({
   </div>
 );
 
-// ── Sub-components ─────────────────────────────────────────────────────────
+// ── Case-Sidebar ─────────────────────────────────────────────────────────────
 
-interface SidebarProps extends WithSetPage {
-  onLogout: () => void;
-  onNewCase: () => void;
-}
-
-const Sidebar = ({ onLogout, onNewCase }: SidebarProps) => (
+const CaseSidebar = ({
+  cases,
+  selectedId,
+  onSelect,
+  onNewCase,
+  loading,
+}: {
+  cases:      Case[];
+  selectedId: string | null;
+  onSelect:   (c: Case) => void;
+  onNewCase:  () => void;
+  loading:    boolean;
+}) => (
   <div style={{
-    width:       224,
-    background:  colors.white,
-    borderRight: `1px solid ${colors.border}`,
-    padding:     22,
-    flexShrink:  0,
-    display:     "flex",
-    flexDirection: "column",
-    justifyContent: "space-between",
+    width:          280,               // US-7.5: 280px fix
+    background:     colors.white,
+    borderRight:    `1px solid ${colors.border}`,
+    display:        "flex",
+    flexDirection:  "column",
+    flexShrink:     0,
+    overflowY:      "auto",           // US-7.5: scrollbar bei vielen Fällen
   }}>
-    <div>
-      <h3 style={{ ...textStyles.h3, fontSize: 15, marginBottom: 4 }}>Übersicht</h3>
-      <p style={{ ...textStyles.small, marginBottom: 20 }}>
-        Deine Fälle, Status und Schnellaktionen
+    {/* Header */}
+    <div style={{ padding: "20px 20px 12px", borderBottom: `1px solid ${colors.border}` }}>
+      <h3 style={{ ...textStyles.h3, fontSize: 15, marginBottom: 2 }}>Meine Fälle</h3>
+      <p style={{ ...textStyles.small }}>
+        {loading ? "Lädt…" : `${cases.length} Fall${cases.length !== 1 ? "e" : ""}`}
       </p>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-        <Button onClick={onNewCase} size="sm" style={{ justifyContent: "center" }}>
-          <Icon name="plus"     size={14} color="#fff" /> Neuen Fall starten
-        </Button>
-        <Button variant="outline" size="sm" style={{ justifyContent: "center" }}>
-          <Icon name="import"   size={14} color={colors.mid} /> Importieren
-        </Button>
-        <Button variant="outline" size="sm" style={{ justifyContent: "center" }}>
-          <Icon name="template" size={14} color={colors.mid} /> Vorlagen
-        </Button>
-      </div>
     </div>
 
-    {/* Abmelden-Button unten */}
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={onLogout}
-      style={{ justifyContent: "center", color: colors.muted }}
-    >
-      Abmelden
-    </Button>
+    {/* Case-Liste */}
+    <div style={{ flex: 1, padding: "8px 10px" }}>
+      {!loading && cases.length === 0 && (
+        <p style={{ ...textStyles.small, color: colors.muted, textAlign: "center", padding: "24px 12px" }}>
+          Noch keine Fälle vorhanden.
+        </p>
+      )}
+
+      {cases.map(c => {
+        const isSelected = c.apiId === selectedId;
+        return (
+          <div
+            key={c.apiId}
+            onClick={() => onSelect(c)}
+            style={{
+              padding:      "12px 12px",
+              borderRadius: 10,
+              marginBottom: 4,
+              cursor:       "pointer",
+              background:   isSelected ? colors.orangeLight : "transparent",
+              borderLeft:   `3px solid ${isSelected ? colors.orange : "transparent"}`,
+              transition:   "all .15s",
+            }}
+            onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = colors.bg; }}
+            onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <span style={{
+                fontFamily: typography.sans,
+                fontSize:   13,
+                fontWeight: 600,
+                color:      isSelected ? colors.orange : colors.dark,
+              }}>
+                Fall #{c.id}
+              </span>
+              <Badge color={STATUS_COLOR[c.status]}>
+                {c.status}
+              </Badge>
+            </div>
+            <p style={{ ...textStyles.small, marginTop: 3, color: colors.muted }}>
+              {c.date} · {c.documentCount} Dok.
+            </p>
+          </div>
+        );
+      })}
+    </div>
+
+    {/* Neuer Fall – persistenter Button am Ende (US-7.5) */}
+    <div style={{ padding: 12, borderTop: `1px solid ${colors.border}` }}>
+      <Button onClick={onNewCase} size="sm" style={{ width: "100%", justifyContent: "center" }}>
+        <Icon name="plus" size={13} color="#fff" /> Neuer Fall
+      </Button>
+    </div>
   </div>
 );
 
-const WelcomeCard = ({ onNewCase }: { onNewCase: () => void }) => (
+// ── CasePreview ──────────────────────────────────────────────────────────────
+
+const CasePreview = ({
+  c,
+  onOpen,
+  onDelete,
+}: {
+  c:        Case;
+  onOpen:   () => void;
+  onDelete: () => void;
+}) => (
   <Card style={{ marginBottom: 24 }}>
+    {/* Header */}
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+      <div>
+        <p style={{ ...textStyles.label, marginBottom: 4 }}>Ausgewählter Fall</p>
+        <h2 style={{ ...textStyles.h2, fontSize: 22 }}>Fall #{c.id}</h2>
+      </div>
+      <Badge color={STATUS_COLOR[c.status]}>{c.status}</Badge>
+    </div>
+
+    {/* Metadaten */}
     <div style={{
-      display:             "grid",
-      gridTemplateColumns: "1fr auto",
-      gap:                 24,
-      alignItems:          "start",
+      display: "grid", gridTemplateColumns: "repeat(3, 1fr)",
+      gap: 16, marginBottom: 24,
+    }}>
+      {([
+        { label: "Erstellt",      value: c.date },
+        { label: "Netzbetreiber", value: c.operator },
+        { label: "Dokumente",     value: `${c.documentCount} hochgeladen` },
+      ] as const).map(({ label, value }) => (
+        <div key={label} style={{
+          background: colors.bg, borderRadius: 10, padding: "12px 14px",
+        }}>
+          <p style={{ ...textStyles.label, marginBottom: 4 }}>{label}</p>
+          <p style={{ ...textStyles.body, fontSize: 13, fontWeight: 600, color: colors.dark }}>
+            {value}
+          </p>
+        </div>
+      ))}
+    </div>
+
+    {/* Nächste Aktion – CTA (US-7.5) */}
+    <div style={{
+      background:   colors.orangeLight,
+      border:       `1px solid ${colors.orange}22`,
+      borderRadius: 10,
+      padding:      "14px 16px",
+      display:      "flex",
+      alignItems:   "center",
+      justifyContent: "space-between",
+      marginBottom: 20,
     }}>
       <div>
+        <p style={{ ...textStyles.label, color: colors.orange, marginBottom: 2 }}>Nächste Aktion</p>
+        <p style={{ ...textStyles.body, fontSize: 13, color: colors.dark, fontWeight: 600 }}>
+          {STATUS_CTA[c.status]}
+        </p>
+      </div>
+      <Button size="sm" onClick={onOpen}>
+        {STATUS_CTA[c.status]} <Icon name="arrow" size={13} color="#fff" />
+      </Button>
+    </div>
+
+    {/* Aktionen */}
+    <div style={{ display: "flex", gap: 10 }}>
+      <Button variant="outline" size="sm" onClick={onOpen}>
+        <Icon name="file" size={13} color={colors.mid} /> Fall öffnen
+      </Button>
+      <button
+        onClick={onDelete}
+        style={{
+          background: "none", border: `1px solid ${colors.dangerBorder}`,
+          borderRadius: 8, padding: "6px 14px",
+          fontFamily: typography.sans, fontSize: 13,
+          color: colors.danger, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 6,
+          transition: "background .15s",
+        }}
+        onMouseEnter={e => (e.currentTarget.style.background = colors.dangerLight)}
+        onMouseLeave={e => (e.currentTarget.style.background = "none")}
+      >
+        <Icon name="x" size={13} color={colors.danger} /> Löschen
+      </button>
+    </div>
+  </Card>
+);
+
+// ── WelcomeCard ──────────────────────────────────────────────────────────────
+
+const WelcomeCard = ({ onNewCase }: { onNewCase: () => void }) => (
+  <Card style={{ marginBottom: 24 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 24, alignItems: "start" }}>
+      <div>
         <h2 style={{ ...textStyles.h2, fontSize: 21, marginBottom: 8 }}>
-          Willkommen bei Resovva. Lass uns deinen ersten Fall lösen.
+          Willkommen bei Resovva.
         </h2>
         <p style={{ ...textStyles.body, marginBottom: 20 }}>
-          Keine Sorge – wir führen dich Schritt für Schritt durch den Prozess.
+          Wähle einen Fall aus der Sidebar oder starte einen neuen.
         </p>
         <div style={{ display: "flex", gap: 12 }}>
           <Button onClick={onNewCase} size="md">
@@ -138,7 +257,6 @@ const WelcomeCard = ({ onNewCase }: { onNewCase: () => void }) => (
           <Button variant="outline" size="md">Hilfe ansehen</Button>
         </div>
       </div>
-
       <div style={{ display: "flex", gap: 20 }}>
         {([
           { icon: "upload" as const, label: "Dokumente\nhochladen" },
@@ -147,19 +265,14 @@ const WelcomeCard = ({ onNewCase }: { onNewCase: () => void }) => (
         ] as const).map(({ icon, label }) => (
           <div key={label} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
             <div style={{
-              width: 40, height: 40,
-              background:   colors.tealLight,
-              borderRadius: 10,
+              width: 40, height: 40, background: colors.tealLight, borderRadius: 10,
               display: "flex", alignItems: "center", justifyContent: "center",
             }}>
               <Icon name={icon} size={18} color={colors.teal} />
             </div>
             <span style={{
-              fontSize:   11, color: colors.mid,
-              textAlign:  "center",
-              whiteSpace: "pre",
-              lineHeight: 1.4,
-              fontFamily: typography.sans,
+              fontSize: 11, color: colors.mid, textAlign: "center",
+              whiteSpace: "pre", lineHeight: 1.4, fontFamily: typography.sans,
             }}>
               {label}
             </span>
@@ -170,131 +283,59 @@ const WelcomeCard = ({ onNewCase }: { onNewCase: () => void }) => (
   </Card>
 );
 
-const CaseCard = ({
-  c,
-  setPage,
-  onDelete,
-}: {
-  c:        Case;
-  setPage:  (p: any) => void;
-  onDelete: () => void;
-}) => {
-  const isEditable     = c.status === "Entwurf";
-  const isDownloadable = c.status === "Abgeschlossen";
-
-  return (
-    <div className="card-hover" style={{
-      background:   colors.white,
-      border:       `1px solid ${colors.border}`,
-      borderRadius: 12,
-      padding:      "18px 20px",
-    }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-        <div>
-          <p style={{ ...textStyles.label, marginBottom: 2 }}>Fall-ID</p>
-          <p style={{ fontFamily: typography.sans, fontSize: 17, fontWeight: 700, color: colors.dark }}>
-            {c.id}
-          </p>
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <p style={{ ...textStyles.label, marginBottom: 2 }}>Datum</p>
-          <p style={{ ...textStyles.body, fontSize: 13 }}>{c.date}</p>
-        </div>
-      </div>
-
-      <p style={{ ...textStyles.small, marginBottom: 14 }}>
-        Netzbetreiber:{" "}
-        <span style={{ fontWeight: 600, color: colors.dark }}>{c.operator}</span>
-      </p>
-
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <Badge color={STATUS_COLOR[c.status]}>{c.status}</Badge>
-        <div style={{ display: "flex", gap: 8 }}>
-          {isEditable && (
-            <Button onClick={() => setPage("case")} variant="outline" size="sm">
-              Bearbeiten
-            </Button>
-          )}
-          {isDownloadable && (
-            <Button variant="teal" size="sm">
-              <Icon name="download" size={13} color="#fff" /> Download
-            </Button>
-          )}
-          {/* Löschen-Button */}
-          <button
-            onClick={onDelete}
-            title="Fall löschen"
-            style={{
-              background:   "none",
-              border:       "none",
-              cursor:       "pointer",
-              color:        colors.muted,
-              padding:      "4px 6px",
-              borderRadius: 6,
-              transition:   "color .15s",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.color = "#D9534F")}
-            onMouseLeave={e => (e.currentTarget.style.color = colors.muted)}
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // ── Dashboard ──────────────────────────────────────────────────────────────
 
-export const Dashboard = ({ setPage }: WithSetPage) => {
+export const Dashboard = ({ setPage, openCase }: DashboardProps) => {
   const [cases,         setCases]         = useState<Case[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [error,         setError]         = useState<string | null>(null);
-  const [deleteTarget,  setDeleteTarget]  = useState<string | null>(null); // case_id aus der API
+  const [selectedCase,  setSelectedCase]  = useState<Case | null>(null);
+  // US-7.6 Bug-Fix: deleteTarget speichert die vollständige UUID (apiId), nicht die kurze ID
+  const [deleteTarget,  setDeleteTarget]  = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  // Echte Cases vom Backend laden
   useEffect(() => {
     casesApi.list()
-      .then(res => setCases(res.cases.map(mapApiCase)))
+      .then(res => {
+        const mapped = res.cases.map(mapApiCase);
+        setCases(mapped);
+        if (mapped.length > 0) setSelectedCase(mapped[0]);
+      })
       .catch(() => setError("Fälle konnten nicht geladen werden."))
       .finally(() => setLoading(false));
   }, []);
 
-  const handleNewCase = async () => {
-    try {
-      const res = await casesApi.create();
-      // Neuen Fall in die Liste einfügen und direkt zum Case-Flow weiterleiten
-      setCases(prev => [
-        { id: res.case_id.slice(-6).toUpperCase(), date: new Date().toLocaleDateString("de-DE"), operator: "Netzbetreiber unbekannt", status: "Entwurf" },
-        ...prev,
-      ]);
-      setPage("case");
-    } catch {
-      setError("Neuer Fall konnte nicht angelegt werden.");
-    }
+  // Neuer Fall: kein caseId übergeben → CaseFlow legt selbst an
+  const handleNewCase = () => openCase(undefined);
+
+  // Bestehenden Fall öffnen: caseId übergeben → CaseFlow erstellt keinen neuen
+  const handleOpenCase = (apiId: string) => openCase(apiId);
+
+  const handleDeleteRequest = (apiId: string) => {
+    setDeleteTarget(apiId);
   };
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
     setDeleteLoading(true);
+
+    // Optimistic UI: sofort aus Liste entfernen
+    const previousCases = cases;
+    const wasSelected = selectedCase?.apiId === deleteTarget;
+    setCases(prev => prev.filter(c => c.apiId !== deleteTarget));
+    if (wasSelected) setSelectedCase(null);
+
     try {
+      // US-7.6 Fix: deleteTarget ist jetzt die vollständige UUID
       await casesApi.delete(deleteTarget);
-      // Fall aus der lokalen Liste entfernen (ID ist die kurze UI-ID)
-      setCases(prev => prev.filter(c => !deleteTarget.includes(c.id.toLowerCase())));
     } catch {
-      setError("Fall konnte nicht gelöscht werden.");
+      // Rollback bei Fehler
+      setCases(previousCases);
+      if (wasSelected) setSelectedCase(previousCases.find(c => c.apiId === deleteTarget) ?? null);
+      setError("Löschen fehlgeschlagen – bitte erneut versuchen.");
     } finally {
       setDeleteLoading(false);
       setDeleteTarget(null);
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await authApi.logout();
-    } finally {
-      setPage("landing");
     }
   };
 
@@ -308,81 +349,46 @@ export const Dashboard = ({ setPage }: WithSetPage) => {
         />
       )}
 
-      <div style={{ display: "flex", minHeight: "calc(100vh - 60px)" }}>
-        <Sidebar setPage={setPage} onLogout={handleLogout} onNewCase={handleNewCase} />
+      <div style={{ display: "flex", height: "calc(100vh - 64px)", overflow: "hidden" }}>
+        {/* ── Sidebar mit Fallliste (US-7.5) ── */}
+        <CaseSidebar
+          cases={cases}
+          selectedId={selectedCase?.apiId ?? null}
+          onSelect={setSelectedCase}
+          onNewCase={handleNewCase}
+          loading={loading}
+        />
 
+        {/* ── Hauptbereich ── */}
         <div style={{ flex: 1, padding: 28, overflowY: "auto" }}>
-          <WelcomeCard onNewCase={handleNewCase} />
 
-          {/* Error */}
           {error && (
             <div style={{
-              marginBottom: 16,
-              padding:      "12px 16px",
-              background:   "#FDF2F2",
-              border:       "1px solid #F5C6C5",
-              borderRadius: 10,
-              color:        "#D9534F",
-              fontSize:     13,
-              fontFamily:   typography.sans,
+              marginBottom: 16, padding: "12px 16px",
+              background: colors.dangerLight, border: `1px solid ${colors.dangerBorder}`,
+              borderRadius: 10, color: colors.danger, fontSize: 13, fontFamily: typography.sans,
             }}>
               {error}
             </div>
           )}
 
-          {/* Case list header */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <h3 style={textStyles.h3}>Deine Fälle</h3>
-            <div style={{ display: "flex", gap: 10 }}>
+          {/* Fall-Vorschau (US-7.5) oder Welcome-Banner */}
+          {selectedCase ? (
+            <CasePreview
+              c={selectedCase}
+              onOpen={() => handleOpenCase(selectedCase.apiId)}
+              onDelete={() => handleDeleteRequest(selectedCase.apiId)}
+            />
+          ) : (
+            <WelcomeCard onNewCase={handleNewCase} />
+          )}
+
+          {/* Export-Leiste */}
+          {cases.length > 0 && (
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
               <Button variant="outline" size="sm">
                 <Icon name="export" size={13} color={colors.mid} /> Export
               </Button>
-              <Button size="sm" onClick={handleNewCase}>
-                <Icon name="plus" size={13} color="#fff" /> Neuen Fall
-              </Button>
-            </div>
-          </div>
-
-          {/* Loading */}
-          {loading && (
-            <p style={{ ...textStyles.body, color: colors.muted, textAlign: "center", padding: 48 }}>
-              Lade Fälle…
-            </p>
-          )}
-
-          {/* Empty state */}
-          {!loading && cases.length === 0 && !error && (
-            <div style={{
-              textAlign:    "center",
-              padding:      64,
-              background:   colors.white,
-              borderRadius: 12,
-              border:       `1px dashed ${colors.border}`,
-            }}>
-              <p style={{ ...textStyles.body, color: colors.muted, marginBottom: 20 }}>
-                Noch keine Fälle vorhanden.
-              </p>
-              <Button onClick={handleNewCase}>
-                <Icon name="plus" size={14} color="#fff" /> Ersten Fall starten
-              </Button>
-            </div>
-          )}
-
-          {/* Case Grid */}
-          {!loading && cases.length > 0 && (
-            <div style={{
-              display:             "grid",
-              gridTemplateColumns: "repeat(2, 1fr)",
-              gap:                 16,
-            }}>
-              {cases.map(c => (
-                <CaseCard
-                  key={c.id}
-                  c={c}
-                  setPage={setPage}
-                  onDelete={() => setDeleteTarget(c.id)}
-                />
-              ))}
             </div>
           )}
         </div>

@@ -5,7 +5,7 @@ import { authApi } from "../../services/api";
 import type { Page, WithSetPage, WithSetLoggedIn } from "../../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Login / Register Page
+// Login / Register Page (US-7.3: Registrierung um Profilfelder erweitert)
 // ─────────────────────────────────────────────────────────────────────────────
 
 type AuthTab = "login" | "register" | "forgot";
@@ -21,16 +21,17 @@ const INPUT_STYLE: React.CSSProperties = {
   outline:      "none",
   background:   colors.bg,
   transition:   "border-color .18s",
+  boxSizing:    "border-box",
 };
 
 const ERROR_STYLE: React.CSSProperties = {
   fontSize:     13,
-  color:        "#D9534F",
+  color:        colors.danger,
   fontFamily:   typography.sans,
   padding:      "10px 14px",
-  background:   "#FDF2F2",
+  background:   colors.dangerLight,
   borderRadius: 8,
-  border:       "1px solid #F5C6C5",
+  border:       `1px solid ${colors.dangerBorder}`,
 };
 
 // ── Sub-components ─────────────────────────────────────────────────────────
@@ -39,13 +40,13 @@ const TabSwitcher = ({
   active, onChange,
 }: { active: "login" | "register"; onChange: (t: "login" | "register") => void }) => (
   <div style={{
-    display: "flex",
+    display:    "flex",
     background: colors.bg,
     borderRadius: 50,
-    padding: 4,
-    gap: 4,
-    width: "fit-content",
-    margin: "0 auto 28px",
+    padding:    4,
+    gap:        4,
+    width:      "fit-content",
+    margin:     "0 auto 28px",
   }}>
     {(["login", "register"] as const).map(tab => (
       <button
@@ -85,6 +86,13 @@ export const Login = ({ setPage, setLoggedIn }: LoginProps) => {
   const [error,           setError]           = useState<string | null>(null);
   const [successMsg,      setSuccessMsg]      = useState<string | null>(null);
 
+  // Profil-Felder (US-7.3)
+  const [firstName,   setFirstName]   = useState("");
+  const [lastName,    setLastName]    = useState("");
+  const [street,      setStreet]      = useState("");
+  const [postalCode,  setPostalCode]  = useState("");
+  const [city,        setCity]        = useState("");
+
   const resetForm = () => {
     setError(null);
     setSuccessMsg(null);
@@ -92,16 +100,19 @@ export const Login = ({ setPage, setLoggedIn }: LoginProps) => {
 
   const handleLogin = async () => {
     resetForm();
-    if (!email || !password) {
-      setError("Bitte E-Mail und Passwort eingeben.");
-      return;
-    }
+    if (!email || !password) { setError("Bitte E-Mail und Passwort eingeben."); return; }
     setLoading(true);
     try {
       await authApi.login({ email, password });
+      // Nach erfolgreichem Login Profil-Status abfragen (US-7.3)
+      const me = await authApi.me();
       setLoggedIn(true);
-      setPage("dashboard" as Page);
-    } catch (err) {
+      if (!me.profile_complete) {
+        setPage("complete-profile" as Page);
+      } else {
+        setPage("dashboard" as Page);
+      }
+    } catch {
       setError("E-Mail oder Passwort falsch.");
     } finally {
       setLoading(false);
@@ -110,33 +121,37 @@ export const Login = ({ setPage, setLoggedIn }: LoginProps) => {
 
   const handleRegister = async () => {
     resetForm();
-    if (!email || !password) {
-      setError("Bitte E-Mail und Passwort eingeben.");
-      return;
-    }
-    if (password.length < 8) {
-      setError("Passwort muss mindestens 8 Zeichen lang sein.");
-      return;
-    }
-    if (password !== passwordConfirm) {
-      setError("Passwörter stimmen nicht überein.");
-      return;
-    }
-    if (!accepted) {
-      setError("Bitte AGB und Datenschutzerklärung akzeptieren.");
-      return;
-    }
+    if (!email || !password) { setError("Bitte E-Mail und Passwort eingeben."); return; }
+    if (password.length < 8) { setError("Passwort muss mindestens 8 Zeichen lang sein."); return; }
+    if (password !== passwordConfirm) { setError("Passwörter stimmen nicht überein."); return; }
+    if (!accepted) { setError("Bitte AGB und Datenschutzerklärung akzeptieren."); return; }
+    if (!firstName || !lastName) { setError("Bitte Vor- und Nachname angeben."); return; }
+    if (!street) { setError("Bitte Straße und Hausnummer angeben."); return; }
+    if (!/^\d{5}$/.test(postalCode)) { setError("PLZ muss genau 5 Ziffern haben."); return; }
+    if (!city) { setError("Bitte Stadt angeben."); return; }
+
     setLoading(true);
     try {
-      await authApi.register({ email, password, accepted_terms: true });
+      await authApi.register({
+        email,
+        password,
+        accepted_terms: true,
+        first_name: firstName,
+        last_name:  lastName,
+        street,
+        postal_code: postalCode,
+        city,
+      });
       setLoggedIn(true);
       setPage("dashboard" as Page);
     } catch (err: any) {
       const msg = err?.message ?? "";
       if (msg.includes("409") || msg.includes("bereits verwendet")) {
         setError("Diese E-Mail-Adresse wird bereits verwendet.");
+      } else if (msg.includes("422")) {
+        setError("Bitte alle Felder korrekt ausfüllen.");
       } else {
-        setError("Registrierung fehlgeschlagen. Bitte versuche es erneut.");
+        setError("Registrierung fehlgeschlagen. Bitte erneut versuchen.");
       }
     } finally {
       setLoading(false);
@@ -145,16 +160,12 @@ export const Login = ({ setPage, setLoggedIn }: LoginProps) => {
 
   const handleForgotPassword = async () => {
     resetForm();
-    if (!email) {
-      setError("Bitte E-Mail-Adresse eingeben.");
-      return;
-    }
+    if (!email) { setError("Bitte E-Mail-Adresse eingeben."); return; }
     setLoading(true);
     try {
       const res = await authApi.forgotPassword(email);
       setSuccessMsg(res.message);
     } catch {
-      // Auch bei Fehler neutrale Meldung (kein Enumeration-Leak)
       setSuccessMsg("Falls ein Account existiert, wurde eine E-Mail gesendet.");
     } finally {
       setLoading(false);
@@ -169,24 +180,28 @@ export const Login = ({ setPage, setLoggedIn }: LoginProps) => {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  // Breite je nach Tab: Register braucht mehr Platz für die 2-spaltige Adresse
+  const cardWidth = tab === "register" ? 520 : 420;
+
   return (
     <div style={{
-      minHeight:      "calc(100vh - 60px)",
+      minHeight:      "calc(100vh - 64px)",
       display:        "flex",
       alignItems:     "center",
       justifyContent: "center",
       background:     `linear-gradient(135deg, ${colors.bg} 0%, #EEF0FA 100%)`,
+      padding:        "32px 16px",
     }}>
       <div className="fade-up" style={{
         background:   colors.white,
         borderRadius: 16,
         border:       `1px solid ${colors.border}`,
         padding:      "40px 36px",
-        width:        420,
+        width:        cardWidth,
+        maxWidth:     "100%",
         boxShadow:    "0 16px 64px rgba(0,0,0,.08)",
       }}>
 
-        {/* Tab-Switcher (nicht bei Forgot-Passwort) */}
         {tab !== "forgot" && (
           <TabSwitcher
             active={tab as "login" | "register"}
@@ -200,7 +215,6 @@ export const Login = ({ setPage, setLoggedIn }: LoginProps) => {
           {tab === "forgot"   && "Passwort vergessen"}
         </h2>
 
-        {/* Error / Success Messages */}
         {error      && <div style={{ ...ERROR_STYLE, marginBottom: 16 }}>{error}</div>}
         {successMsg && (
           <div style={{ ...ERROR_STYLE, color: colors.teal, background: colors.tealLight, border: `1px solid ${colors.teal}`, marginBottom: 16 }}>
@@ -217,7 +231,6 @@ export const Login = ({ setPage, setLoggedIn }: LoginProps) => {
             style={INPUT_STYLE}
           />
 
-          {/* Passwort-Felder (nicht bei Forgot) */}
           {tab !== "forgot" && (
             <input
               type="password"
@@ -238,22 +251,78 @@ export const Login = ({ setPage, setLoggedIn }: LoginProps) => {
             />
           )}
 
-          {/* AGB-Checkbox (nur bei Registrierung) */}
+          {/* ── Profil-Felder (US-7.3) – nur bei Registrierung ──────────── */}
           {tab === "register" && (
-            <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+            <>
+              <div style={{ height: 1, background: colors.border, margin: "4px 0" }} />
+              <p style={{ ...textStyles.label, color: colors.muted }}>Persönliche Daten</p>
+
+              {/* Vor- / Nachname — 2-spaltig */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <input
+                  type="text"
+                  placeholder="Vorname"
+                  value={firstName}
+                  onChange={e => setFirstName(e.target.value)}
+                  style={INPUT_STYLE}
+                />
+                <input
+                  type="text"
+                  placeholder="Nachname"
+                  value={lastName}
+                  onChange={e => setLastName(e.target.value)}
+                  style={INPUT_STYLE}
+                />
+              </div>
+
+              {/* Straße + Hausnummer */}
               <input
-                type="checkbox"
-                checked={accepted}
-                onChange={e => setAccepted(e.target.checked)}
-                style={{ marginTop: 3, accentColor: colors.orange, width: 15, height: 15, flexShrink: 0 }}
+                type="text"
+                placeholder="Straße und Hausnummer"
+                value={street}
+                onChange={e => setStreet(e.target.value)}
+                style={INPUT_STYLE}
               />
-              <span style={{ ...textStyles.small, color: colors.muted, lineHeight: 1.5 }}>
-                Ich akzeptiere die{" "}
-                <span style={{ color: colors.orange, cursor: "pointer" }}>AGB</span>{" "}
-                und die{" "}
-                <span style={{ color: colors.orange, cursor: "pointer" }}>Datenschutzerklärung</span>
-              </span>
-            </label>
+
+              {/* PLZ (schmal) + Stadt (breit) — 2-spaltig */}
+              <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 10 }}>
+                <input
+                  type="text"
+                  placeholder="PLZ"
+                  value={postalCode}
+                  maxLength={5}
+                  onChange={e => setPostalCode(e.target.value.replace(/\D/g, ""))}
+                  style={INPUT_STYLE}
+                />
+                <input
+                  type="text"
+                  placeholder="Stadt"
+                  value={city}
+                  onChange={e => setCity(e.target.value)}
+                  style={INPUT_STYLE}
+                />
+              </div>
+            </>
+          )}
+
+          {tab === "register" && (
+            <>
+              <div style={{ height: 1, background: colors.border, margin: "4px 0" }} />
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={accepted}
+                  onChange={e => setAccepted(e.target.checked)}
+                  style={{ marginTop: 3, accentColor: colors.orange, width: 15, height: 15, flexShrink: 0 }}
+                />
+                <span style={{ ...textStyles.small, color: colors.muted, lineHeight: 1.5 }}>
+                  Ich akzeptiere die{" "}
+                  <span style={{ color: colors.orange, cursor: "pointer" }}>AGB</span>{" "}
+                  und die{" "}
+                  <span style={{ color: colors.orange, cursor: "pointer" }}>Datenschutzerklärung</span>
+                </span>
+              </label>
+            </>
           )}
 
           <Button
@@ -270,7 +339,6 @@ export const Login = ({ setPage, setLoggedIn }: LoginProps) => {
           </Button>
         </div>
 
-        {/* Footer-Links */}
         {tab === "login" && (
           <div style={{ marginTop: 18, textAlign: "center" }}>
             <p style={{ ...textStyles.small, color: colors.muted, marginBottom: 8 }}>
@@ -302,7 +370,6 @@ export const Login = ({ setPage, setLoggedIn }: LoginProps) => {
           </p>
         )}
 
-        {/* DSGVO notice */}
         <div style={{
           marginTop:    24,
           padding:      "13px 15px",

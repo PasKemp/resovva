@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { colors, textStyles, typography } from "../../../theme/tokens";
 import { Button, Card, Icon, MaskingPreview } from "../../../components";
 import type { ExtractedData } from "../../../types";

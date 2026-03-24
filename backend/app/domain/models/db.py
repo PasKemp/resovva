@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, date
 from typing import List, Optional
-from sqlalchemy import String, ForeignKey, DateTime, Boolean, Date, Text, Numeric
+from sqlalchemy import String, ForeignKey, DateTime, Boolean, Date, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -19,6 +19,13 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     accepted_terms: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Profil-Daten (US-7.3) – nullable für Rückwärtskompatibilität mit bestehenden Accounts
+    first_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    last_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    street: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    postal_code: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
+    city: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     # Relation zu Cases (Ein User hat viele Cases)
     cases: Mapped[List["Case"]] = relationship("Case", back_populates="user", cascade="all, delete-orphan")

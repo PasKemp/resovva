@@ -11,7 +11,9 @@ export type Page =
   | "preise"
   | "hilfe"
   | "reset-password"
-  | "mobile-upload";
+  | "mobile-upload"
+  | "profile"
+  | "complete-profile";
 
 // ── Domain models ─────────────────────────────────────────────────────────────
 
@@ -32,10 +34,12 @@ export interface ApiCase {
 
 /** Frontend-Darstellung eines Falls (nach Mapping aus ApiCase) */
 export interface Case {
-  id: string;
+  apiId: string;       // vollständige UUID für API-Calls (z.B. löschen)
+  id: string;          // Kurzform für UI-Anzeige (letzte 6 Zeichen)
   date: string;
   operator: string;
   status: CaseStatus;
+  documentCount: number;
 }
 
 export interface UploadedFile {
@@ -78,9 +82,11 @@ const STATUS_MAP: Record<CaseStatusApi, CaseStatus> = {
 /** Wandelt das API-Case-Format in das UI-Case-Format um. */
 export function mapApiCase(c: ApiCase): Case {
   return {
-    id:       c.case_id.slice(-6).toUpperCase(), // Kurzform für UI
-    date:     new Date(c.created_at).toLocaleDateString("de-DE"),
-    operator: c.network_operator ?? "Netzbetreiber unbekannt",
-    status:   STATUS_MAP[c.status] ?? "Entwurf",
+    apiId:         c.case_id,
+    id:            c.case_id.slice(-6).toUpperCase(),
+    date:          new Date(c.created_at).toLocaleDateString("de-DE"),
+    operator:      c.network_operator ?? "Netzbetreiber unbekannt",
+    status:        STATUS_MAP[c.status] ?? "Entwurf",
+    documentCount: c.document_count,
   };
 }
