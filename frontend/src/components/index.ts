@@ -5,6 +5,7 @@ export { Icon }           from "./Icon";
 export { Nav }            from "./Nav";
 export { MaskingPreview } from "./MaskingPreview";
 
-export type { ButtonVariant, ButtonSize } from "./Button";
-export type { BadgeColor }               from "./Badge";
-export type { IconName }                 from "./Icon";
+export type { ButtonVariant, ButtonSize, ButtonProps } from "./Button";
+export type { BadgeColor, BadgeProps }                 from "./Badge";
+export type { IconName, IconProps }                    from "./Icon";
+export type { NavProps }                               from "./Nav";

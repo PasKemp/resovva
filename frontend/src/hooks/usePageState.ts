@@ -9,11 +9,11 @@ import type { Page } from "../types";
 // agnostic so the feature code stays unaware of the routing mechanism.
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface PageState {
-  page:       Page;
-  setPage:    (p: Page) => void;
-  loggedIn:   boolean;
-  setLoggedIn:(v: boolean) => void;
+export interface PageState {
+  page:        Page;
+  setPage:     (p: Page) => void;
+  loggedIn:    boolean;
+  setLoggedIn: (v: boolean) => void;
 }
 
 const detectInitialPage = (fallback: Page): Page => {
@@ -27,6 +27,22 @@ const detectInitialPage = (fallback: Page): Page => {
   return fallback;
 };
 
+/**
+ * Leichtgewichtiger Client-Side-Routing-Hook.
+ *
+ * Erkennt beim ersten Aufruf die initiale Seite anhand von `window.location`
+ * (mobile-upload, complete-profile, reset-password) und verwaltet
+ * danach den Navigationszustand als einfachen React-State.
+ *
+ * In Produktion würde dieser Hook durch React Router DOM ersetzt werden.
+ * Das Feature-Code bleibt dadurch routing-agnostisch.
+ *
+ * @param initialPage - Fallback-Seite wenn keine URL-Erkennung greift (Standard: "landing")
+ * @returns PageState mit `page`, `setPage`, `loggedIn`, `setLoggedIn`
+ *
+ * @example
+ * const { page, setPage, loggedIn, setLoggedIn } = usePageState("landing");
+ */
 export const usePageState = (initialPage: Page = "landing"): PageState => {
   const [page, setPage]         = useState<Page>(() => detectInitialPage(initialPage));
   const [loggedIn, setLoggedIn] = useState(false);

@@ -6,7 +6,7 @@ import { AnalysisStep } from "./steps/AnalysisStep";
 import { TimelineStep } from "./steps/TimelineStep";
 import { CheckoutStep } from "./steps/CheckoutStep";
 import { casesApi, caseStatusApi } from "../../services/api";
-import type { Page, WithSetPage } from "../../types";
+import type { WithSetPage } from "../../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CaseFlow — 4-Schritt-Wizard (US-7.7: Stepper-Navigation & Dokument-Sidebar)

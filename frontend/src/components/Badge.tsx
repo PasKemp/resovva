@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { colors, typography } from ".././theme/tokens";
+import { colors, typography } from "../theme/tokens";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Badge — status / label pill
@@ -7,9 +7,9 @@ import { colors, typography } from ".././theme/tokens";
 
 export type BadgeColor = "orange" | "teal" | "yellow" | "green" | "muted" | "red";
 
-interface BadgeProps {
+export interface BadgeProps {
   children: ReactNode;
-  color?: BadgeColor;
+  color?:   BadgeColor;
 }
 
 const COLOR_MAP: Record<BadgeColor, { bg: string; text: string }> = {
@@ -21,6 +21,16 @@ const COLOR_MAP: Record<BadgeColor, { bg: string; text: string }> = {
   muted: { bg: "#F5EFE6", text: colors.muted },
 };
 
+/**
+ * Status-Badge / Label-Pill für Statusanzeigen und Kennzeichnungen.
+ *
+ * @param children - Anzeigetext des Badges
+ * @param color    - Farbschema (Standard: "muted")
+ *
+ * @example
+ * <Badge color="teal">Abgeschlossen</Badge>
+ * <Badge color="orange">Entwurf</Badge>
+ */
 export const Badge = ({ children, color = "muted" }: BadgeProps) => {
   const { bg, text } = COLOR_MAP[color];
   return (

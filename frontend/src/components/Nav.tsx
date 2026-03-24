@@ -8,12 +8,18 @@ import type { Page } from "../types";
 // Nav — persistent top navigation bar (US-7.2: größere Toolbar)
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface NavProps {
-  page:        Page;
-  setPage:     (p: Page) => void;
-  loggedIn:    boolean;
-  onLogout?:   () => void;
+export interface NavProps {
+  page:      Page;
+  setPage:   (p: Page) => void;
+  loggedIn:  boolean;
+  onLogout?: () => void;
 }
+
+/** Navigationslinks für nicht eingeloggte Nutzer. */
+const PUBLIC_NAV_LINKS = ["Landing", "Preise", "Hilfe"] as const;
+
+/** Navigationslinks für eingeloggte Nutzer. */
+const PRIVATE_NAV_LINKS = ["Dashboard", "Hilfe"] as const;
 
 const Logo = ({ onClick }: { onClick: () => void }) => (
   <div
@@ -201,7 +207,7 @@ export const Nav = ({ page, setPage, loggedIn, onLogout }: NavProps) => {
 
         {!loggedIn && (
           <div style={{ display: "flex", gap: 8 }}>
-            {(["Landing", "Preise", "Hilfe"] as const).map(label => (
+            {PUBLIC_NAV_LINKS.map(label => (
               <NavPill
                 key={label}
                 label={label}
@@ -214,7 +220,7 @@ export const Nav = ({ page, setPage, loggedIn, onLogout }: NavProps) => {
 
         {loggedIn && (
           <div style={{ display: "flex", gap: 8 }}>
-            {(["Dashboard", "Hilfe"] as const).map(label => (
+            {PRIVATE_NAV_LINKS.map(label => (
               <NavPill
                 key={label}
                 label={label}

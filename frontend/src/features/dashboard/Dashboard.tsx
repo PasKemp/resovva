@@ -285,7 +285,7 @@ const WelcomeCard = ({ onNewCase }: { onNewCase: () => void }) => (
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
 
-export const Dashboard = ({ setPage, openCase }: DashboardProps) => {
+export const Dashboard = ({ openCase }: DashboardProps) => {
   const [cases,         setCases]         = useState<Case[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [error,         setError]         = useState<string | null>(null);

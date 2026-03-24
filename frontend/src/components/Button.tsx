@@ -1,5 +1,5 @@
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
-import { colors, radii, typography } from ".././theme/tokens";
+import { colors, radii, typography } from "../theme/tokens";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Button
@@ -8,8 +8,8 @@ import { colors, radii, typography } from ".././theme/tokens";
 export type ButtonVariant = "primary" | "outline" | "teal" | "ghost";
 export type ButtonSize    = "sm" | "md" | "lg";
 
-interface ButtonProps {
-  children: ReactNode;
+export interface ButtonProps {
+  children:  ReactNode;
   variant?:  ButtonVariant;
   size?:     ButtonSize;
   disabled?: boolean;
@@ -31,6 +31,22 @@ const VARIANT_STYLES: Record<ButtonVariant, CSSProperties> = {
   ghost:   { background: "transparent",  color: colors.mid,  border: "none", padding: "8px 14px" },
 };
 
+/**
+ * Wiederverwendbarer Button mit 4 Varianten und 3 Größen.
+ *
+ * @param children - Button-Inhalt (Text, Icons, etc.)
+ * @param variant  - Visueller Stil: "primary" | "outline" | "teal" | "ghost"
+ * @param size     - Größe: "sm" | "md" | "lg"
+ * @param disabled - Deaktiviert den Button und reduziert die Opacity
+ * @param onClick  - Click-Handler
+ * @param style    - Zusätzliche Inline-Styles (werden gemergt)
+ * @param type     - HTML-Button-Typ (Standard: "button")
+ *
+ * @example
+ * <Button variant="primary" size="lg" onClick={handleSubmit}>
+ *   Weiter <Icon name="arrow" size={15} color="#fff" />
+ * </Button>
+ */
 export const Button = ({
   children,
   variant  = "primary",

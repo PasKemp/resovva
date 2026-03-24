@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { colors } from ".././theme/tokens";
+import { colors } from "../theme/tokens";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Icon — SVG icon library for Resovva
@@ -11,9 +11,9 @@ export type IconName =
   | "scale" | "phone" | "arrow" | "export" | "import" | "template"
   | "activity" | "scan" | "checkCircle" | "spinner" | "mail";
 
-interface IconProps {
-  name: IconName;
-  size?: number;
+export interface IconProps {
+  name:   IconName;
+  size?:  number;
   color?: string;
   style?: CSSProperties;
 }
@@ -118,6 +118,17 @@ const PATHS: Record<IconName, (c: string) => JSX.Element> = {
   </>),
 };
 
+/**
+ * SVG-Icon-Komponente mit 23 eingebauten Icons.
+ *
+ * @param name  - Icon-Bezeichner aus der `IconName`-Union
+ * @param size  - Breite und Höhe in Pixeln (Standard: 16)
+ * @param color - SVG-Strichfarbe (Standard: colors.orange)
+ * @param style - Zusätzliche Inline-Styles auf dem SVG-Element
+ *
+ * @example
+ * <Icon name="upload" size={24} color="#fff" />
+ */
 export const Icon = ({ name, size = 16, color = colors.orange, style }: IconProps) => (
   <svg
     width={size}

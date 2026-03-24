@@ -30,7 +30,11 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-export interface LoginPayload    { email: string; password: string; }
+export interface LoginPayload {
+  email:    string;
+  password: string;
+}
+
 export interface RegisterPayload {
   email:          string;
   password:       string;
@@ -41,7 +45,11 @@ export interface RegisterPayload {
   postal_code:    string;
   city:           string;
 }
-export interface AuthResponse    { status: string; user_id: string; message?: string; }
+export interface AuthResponse {
+  status:   string;
+  user_id:  string;
+  message?: string;
+}
 
 export interface MeResponse {
   user_id:          string;
@@ -88,8 +96,15 @@ export const authApi = {
 
 // ── Cases ─────────────────────────────────────────────────────────────────────
 
-export interface CasesResponse   { cases: ApiCase[]; }
-export interface CreateCaseResponse { case_id: string; status: string; message: string; }
+export interface CasesResponse {
+  cases: ApiCase[];
+}
+
+export interface CreateCaseResponse {
+  case_id: string;
+  status:  string;
+  message: string;
+}
 
 export const casesApi = {
   list:   () =>
@@ -104,7 +119,11 @@ export const casesApi = {
 
 // ── Documents ─────────────────────────────────────────────────────────────────
 
-export interface UploadResponse { document_id: string; filename: string; status: string; }
+export interface UploadResponse {
+  document_id: string;
+  filename:    string;
+  status:      string;
+}
 
 export const documentsApi = {
   upload: (caseId: string, file: File) => {
@@ -127,11 +146,37 @@ export const documentsApi = {
 
 // ── Mobile Upload ─────────────────────────────────────────────────────────────
 
-export interface UploadTokenResponse { token: string; expires_at: string; upload_url: string; }
-export interface CaseStatusResponse  { status: "processing" | "completed" | "error" | "empty"; total: number; completed: number; preview?: string; }
-export interface DocumentsResponse   { documents: Array<{ document_id: string; filename: string; document_type: string; ocr_status: string; created_at: string; }>; }
+export interface UploadTokenResponse {
+  token:      string;
+  expires_at: string;
+  upload_url: string;
+}
 
-export interface TokenInfoResponse { case_id: string; expires_at: string; valid: boolean; }
+export interface CaseStatusResponse {
+  status:    "processing" | "completed" | "error" | "empty";
+  total:     number;
+  completed: number;
+  preview?:  string;
+}
+
+/** Einzelnes Dokument in der Dokumentenliste eines Falls. */
+export interface DocumentListItem {
+  document_id:   string;
+  filename:      string;
+  document_type: string;
+  ocr_status:    string;
+  created_at:    string;
+}
+
+export interface DocumentsResponse {
+  documents: DocumentListItem[];
+}
+
+export interface TokenInfoResponse {
+  case_id:    string;
+  expires_at: string;
+  valid:      boolean;
+}
 
 export const mobileUploadApi = {
   createToken: (caseId: string) =>
@@ -205,7 +250,11 @@ export const timelineApi = {
 
 // ── Dossier ───────────────────────────────────────────────────────────────────
 
-export interface DossierStatus { progress: number; ready: boolean; download_url?: string; }
+export interface DossierStatus {
+  progress:      number;
+  ready:         boolean;
+  download_url?: string;
+}
 
 export const dossierApi = {
   generate: (caseId: string) =>
