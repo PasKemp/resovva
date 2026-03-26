@@ -1,17 +1,12 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { colors, textStyles, typography } from "../../../theme/tokens";
 import { Button, Badge, Card, Icon } from "../../../components";
+import { timelineApi } from "../../../services/api";
 import type { TimelineEvent } from "../../../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Step 3 — Der Rote Faden (Chronologie)
 // ─────────────────────────────────────────────────────────────────────────────
-
-const INITIAL_EVENTS: TimelineEvent[] = [
-  { date: "02.03.2026", event: "Rechnung empfangen: Abschlagsrechnung 02/2026", source: "E-Mail" },
-  { date: "15.02.2026", event: "Zählerstand fotografiert",                      source: "Foto" },
-  { date: "01.01.2026", event: "Vertrag geändert: Tarifwechsel",                source: "Post" },
-];
 
 // Spec: E-Mail=blau, Post=grau, Foto=orange, Eigene Angabe=lila
 const SOURCE_BADGE_COLOR: Record<TimelineEvent["source"], "blue" | "orange" | "muted" | "purple"> = {
@@ -34,11 +29,11 @@ interface TimelineStepProps {
 // ── Add-Event-Modal ───────────────────────────────────────────────────────────
 
 interface AddEventModalProps {
-  onSave:  (e: TimelineEvent) => void;
+  onSave:  (e: Omit<TimelineEvent, "id">) => void;
   onClose: () => void;
 }
 
-const AddEventModal = ({ onSave, onClose }: AddEventModalProps) => {
+const AddEventModal: React.FC<AddEventModalProps> = ({ onSave, onClose }) => {
   const [date,   setDate]   = useState(new Date().toISOString().split("T")[0]);
   const [event,  setEvent]  = useState("");
   const [source, setSource] = useState<TimelineEvent["source"]>("Eigene Angabe");
@@ -122,11 +117,11 @@ const AddEventModal = ({ onSave, onClose }: AddEventModalProps) => {
 
 // ── Timeline row ──────────────────────────────────────────────────────────────
 
-const TimelineRow = ({
-  row, index, total, onDelete,
-}: {
-  row: TimelineEvent; index: number; total: number; onDelete: (i: number) => void;
-}) => {
+const TimelineRow: React.FC<{
+  row:      TimelineEvent;
+  isLast:   boolean;
+  onDelete: (id: string) => void;
+}> = ({ row, isLast, onDelete }) => {
   const [hovered,  setHovered]  = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -138,7 +133,7 @@ const TimelineRow = ({
         display:             "grid",
         gridTemplateColumns: "130px 1fr 110px 32px",
         padding:             "12px 16px",
-        borderBottom:        index < total - 1 ? `1px solid ${colors.border}` : "none",
+        borderBottom:        isLast ? "none" : `1px solid ${colors.border}`,
         alignItems:          "center",
         background:          hovered ? colors.bg : "transparent",
         transition:          "background .15s",
@@ -186,7 +181,7 @@ const TimelineRow = ({
               Bearbeiten
             </button>
             <button
-              onClick={() => { onDelete(index); setMenuOpen(false); }}
+              onClick={() => { onDelete(row.id); setMenuOpen(false); }}
               style={{
                 width: "100%", padding: "9px 14px", background: "none", border: "none",
                 textAlign: "left", fontFamily: typography.sans, fontSize: 13, color: colors.redText, cursor: "pointer",
@@ -205,12 +200,37 @@ const TimelineRow = ({
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export const TimelineStep = ({ caseId: _caseId, onNext: _onNext, onBack: _onBack }: TimelineStepProps) => {
-  const [events,   setEvents]   = useState<TimelineEvent[]>(INITIAL_EVENTS);
+/**
+ * Step 3: Chronologie-Ansicht — lädt Timeline-Events aus der API,
+ * ermöglicht manuelles Hinzufügen und Löschen von Ereignissen.
+ */
+export const TimelineStep: React.FC<TimelineStepProps> = ({ caseId, onNext: _onNext, onBack: _onBack }) => {
+  const [events,    setEvents]    = useState<TimelineEvent[]>([]);
   const [showModal, setShowModal] = useState(false);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState<string | null>(null);
 
-  const addEvent = (e: TimelineEvent) => setEvents(prev => [...prev, e]);
-  const deleteEvent = (index: number) => setEvents(prev => prev.filter((_, i) => i !== index));
+  // Events aus API laden
+  useEffect(() => {
+    setLoading(true);
+    timelineApi.get(caseId)
+      .then(r => setEvents(r.timeline))
+      .catch(() => setError("Timeline konnte nicht geladen werden."))
+      .finally(() => setLoading(false));
+  }, [caseId]);
+
+  const addEvent = useCallback(async (e: Omit<TimelineEvent, "id">) => {
+    try {
+      const saved = await timelineApi.addEvent(caseId, e);
+      setEvents(prev => [...prev, saved]);
+    } catch {
+      setError("Ereignis konnte nicht gespeichert werden.");
+    }
+  }, [caseId]);
+
+  const deleteEvent = useCallback((id: string) => {
+    setEvents(prev => prev.filter(e => e.id !== id));
+  }, []);
 
   return (
     <div className="fade-in">
@@ -218,6 +238,12 @@ export const TimelineStep = ({ caseId: _caseId, onNext: _onNext, onBack: _onBack
 
       <Card style={{ marginBottom: 20 }}>
         <h3 style={{ ...textStyles.h3, marginBottom: 20 }}>3. Der Rote Faden</h3>
+
+        {error && (
+          <p style={{ fontSize: 12, color: colors.redText, fontFamily: typography.sans, marginBottom: 12 }}>
+            {error}
+          </p>
+        )}
 
         {/* ── Gap warning ── */}
         <div style={{
@@ -236,21 +262,39 @@ export const TimelineStep = ({ caseId: _caseId, onNext: _onNext, onBack: _onBack
         </div>
 
         {/* ── Timeline table ── */}
-        <div style={{ border: `1px solid ${colors.border}`, borderRadius: 8, overflow: "hidden" }}>
-          <div style={{
-            display: "grid", gridTemplateColumns: "130px 1fr 110px 32px",
-            background: colors.bg, padding: "10px 16px",
-            borderBottom: `1px solid ${colors.border}`,
-          }}>
-            {["Datum", "Ereignis", "Quelle", ""].map((h, i) => (
-              <span key={i} style={textStyles.label}>{h}</span>
+        {loading ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "20px 0" }}>
+            <div style={{ width: 16, height: 16, border: `2px solid ${colors.orange}`, borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+            <p style={{ ...textStyles.small, color: colors.muted }}>Lade Timeline…</p>
+          </div>
+        ) : (
+          <div style={{ border: `1px solid ${colors.border}`, borderRadius: 8, overflow: "hidden" }}>
+            <div style={{
+              display: "grid", gridTemplateColumns: "130px 1fr 110px 32px",
+              background: colors.bg, padding: "10px 16px",
+              borderBottom: `1px solid ${colors.border}`,
+            }}>
+              {["Datum", "Ereignis", "Quelle", ""].map((h, i) => (
+                <span key={i} style={textStyles.label}>{h}</span>
+              ))}
+            </div>
+
+            {events.length === 0 && (
+              <p style={{ ...textStyles.small, color: colors.muted, padding: "16px", textAlign: "center" }}>
+                Noch keine Ereignisse vorhanden.
+              </p>
+            )}
+
+            {events.map((row, i) => (
+              <TimelineRow
+                key={row.id}
+                row={row}
+                isLast={i === events.length - 1}
+                onDelete={deleteEvent}
+              />
             ))}
           </div>
-
-          {events.map((row, i) => (
-            <TimelineRow key={i} row={row} index={i} total={events.length} onDelete={deleteEvent} />
-          ))}
-        </div>
+        )}
 
         {/* ── Add manual event (dashed ghost button) ── */}
         <div style={{ marginTop: 14 }}>

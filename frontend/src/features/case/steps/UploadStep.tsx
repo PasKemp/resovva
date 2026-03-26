@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import imageCompression from "browser-image-compression";
 import { QRCodeSVG } from "qrcode.react";
 import { colors, textStyles, typography } from "../../../theme/tokens";
 import { Button, Card, Icon } from "../../../components";
-import { documentsApi, mobileUploadApi, caseStatusApi } from "../../../services/api";
-import type { DocumentsResponse } from "../../../services/api";
+import { documentsApi, mobileUploadApi } from "../../../services/api";
+import type { DocumentListItem } from "../../../services/api";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Step 1 — Upload & Mobile Scan
@@ -12,15 +12,17 @@ import type { DocumentsResponse } from "../../../services/api";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 const COMPRESS_OPTIONS = {
-  maxSizeMB:       10,
+  maxSizeMB:        10,
   maxWidthOrHeight: 2000,
-  useWebWorker:    true,
-  fileType:        "image/jpeg" as const,
-  initialQuality:  0.8,
+  useWebWorker:     true,
+  fileType:         "image/jpeg" as const,
+  initialQuality:   0.8,
 };
 
 interface UploadStepProps {
   caseId:           string;
+  /** Dokumentenliste vom Parent (CaseFlow pollt zentral). */
+  docs:             DocumentListItem[];
   onNext:           () => void;
   onCanNextChange?: (can: boolean) => void;
 }
@@ -33,12 +35,8 @@ interface UploadedFile {
   ocr_status:  string;
 }
 
-function formatBytes(n: number): string {
-  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${(n / 1024).toFixed(0)} KB`;
-}
 
-const FileRow = ({ file: f, onRemove }: { file: UploadedFile; onRemove: (f: UploadedFile) => void }) => {
+const FileRow: React.FC<{ file: UploadedFile; onRemove: (f: UploadedFile) => void }> = ({ file: f, onRemove }) => {
   const [hovered, setHovered] = useState(false);
   const done = f.ocr_status === "completed";
   const err  = f.ocr_status === "error";
@@ -98,58 +96,40 @@ const FileRow = ({ file: f, onRemove }: { file: UploadedFile; onRemove: (f: Uplo
   );
 };
 
-export const UploadStep = ({ caseId, onNext: _onNext, onCanNextChange }: UploadStepProps) => {
-  const [files,       setFiles]       = useState<UploadedFile[]>([]);
-  const [dragging,    setDragging]    = useState(false);
-  const [uploading,   setUploading]   = useState(false);
-  const [error,       setError]       = useState<string | null>(null);
-  const [qrToken,     setQrToken]     = useState<string | null>(null);
-  const [qrLoading,   setQrLoading]   = useState(false);
-  const [qrUploadUrl, setQrUploadUrl] = useState<string | null>(null);
+/**
+ * Step 1: Dokument-Upload per Drag-Drop, Dateiauswahl oder QR-Code (Handy).
+ * Dokumentenliste wird zentral von CaseFlow gepflegt und als `docs` übergeben.
+ */
+export const UploadStep: React.FC<UploadStepProps> = ({ caseId, docs, onNext: _onNext, onCanNextChange }) => {
+  const [localFiles,   setLocalFiles]   = useState<UploadedFile[]>([]);
+  const [dragging,     setDragging]     = useState(false);
+  const [uploading,    setUploading]    = useState(false);
+  const [error,        setError]        = useState<string | null>(null);
+  const [qrToken,      setQrToken]      = useState<string | null>(null);
+  const [qrLoading,    setQrLoading]    = useState(false);
+  const [qrUploadUrl,  setQrUploadUrl]  = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const pollRef      = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Dokumente beim Laden der Komponente abrufen
+  // Dokumentenliste aus Parent-Props ableiten (CaseFlow pollt zentral)
   useEffect(() => {
-    loadDocuments();
-  }, [caseId]);
+    setLocalFiles(
+      docs.map(d => ({
+        document_id: d.document_id,
+        name:        d.filename,
+        size:        "–",
+        date:        new Date(d.created_at).toLocaleDateString("de-DE"),
+        ocr_status:  d.ocr_status,
+      }))
+    );
+  }, [docs]);
 
   // Eltern-Komponente über Datei-Verfügbarkeit informieren
   useEffect(() => {
-    onCanNextChange?.(files.length > 0);
-  }, [files.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    onCanNextChange?.(docs.length > 0);
+  }, [docs.length, onCanNextChange]);
 
-  // Polling: neue QR-Uploads + OCR-Status-Updates (alle 2 Sekunden)
-  // Läuft solange QR aktiv ODER noch Dokumente in Verarbeitung sind
-  useEffect(() => {
-    const hasPending = files.some(f => f.ocr_status === "pending" || f.ocr_status === "processing");
-    if (qrToken || hasPending) {
-      pollRef.current = setInterval(loadDocuments, 2000);
-    } else {
-      if (pollRef.current) clearInterval(pollRef.current);
-    }
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [qrToken, files]);
-
-  async function loadDocuments() {
-    try {
-      const resp: DocumentsResponse = await caseStatusApi.listDocuments(caseId);
-      setFiles(
-        resp.documents.map(d => ({
-          document_id: d.document_id,
-          name:        d.filename,
-          size:        "–",
-          date:        new Date(d.created_at).toLocaleDateString("de-DE"),
-          ocr_status:  d.ocr_status,
-        }))
-      );
-    } catch {
-      // Fehler beim Laden der Dokumente ignorieren (kein UI-Error nötig)
-    }
-  }
-
-  async function handleFiles(rawFiles: FileList | null) {
+  const handleFiles = useCallback(async (rawFiles: FileList | null) => {
     if (!rawFiles || rawFiles.length === 0) return;
     setError(null);
     setUploading(true);
@@ -159,8 +139,8 @@ export const UploadStep = ({ caseId, onNext: _onNext, onCanNextChange }: UploadS
         let fileToUpload: File = raw;
 
         // Bilder clientseitig komprimieren (max 2000px, JPEG, Qualität 80%)
-        // Bug-Fix: Original-Dateiname explizit erhalten, da imageCompression
-        // manchmal ein namenloses Blob zurückgibt → "blob" als Dateiname im Backend
+        // Originalname explizit erhalten, da imageCompression manchmal ein
+        // namenloses Blob zurückgibt → "blob" als Dateiname im Backend
         if (raw.type.startsWith("image/")) {
           const compressed = await imageCompression(raw, COMPRESS_OPTIONS);
           fileToUpload = new File([compressed], raw.name, { type: compressed.type });
@@ -171,26 +151,17 @@ export const UploadStep = ({ caseId, onNext: _onNext, onCanNextChange }: UploadS
           continue;
         }
 
-        const resp = await documentsApi.upload(caseId, fileToUpload);
-        setFiles(prev => [
-          ...prev,
-          {
-            document_id: resp.document_id,
-            name:        resp.filename,
-            size:        formatBytes(fileToUpload.size),
-            date:        new Date().toLocaleDateString("de-DE"),
-            ocr_status:  "pending",
-          },
-        ]);
+        await documentsApi.upload(caseId, fileToUpload);
+        // Kein lokales State-Update nötig: CaseFlow-Polling aktualisiert `docs`
       } catch (err) {
         setError(err instanceof Error ? err.message : "Upload fehlgeschlagen.");
       }
     }
 
     setUploading(false);
-  }
+  }, [caseId]);
 
-  async function handleShowQr() {
+  const handleShowQr = useCallback(async () => {
     setQrLoading(true);
     setError(null);
     try {
@@ -203,16 +174,16 @@ export const UploadStep = ({ caseId, onNext: _onNext, onCanNextChange }: UploadS
     } finally {
       setQrLoading(false);
     }
-  }
+  }, [caseId]);
 
-  async function removeFile(doc: UploadedFile) {
+  const removeFile = useCallback(async (doc: UploadedFile) => {
     try {
       await documentsApi.delete(caseId, doc.document_id);
-      setFiles(prev => prev.filter(f => f.document_id !== doc.document_id));
+      // CaseFlow-Polling entfernt das Dokument automatisch aus `docs`
     } catch {
       setError("Dokument konnte nicht gelöscht werden.");
     }
-  }
+  }, [caseId]);
 
   return (
     <div className="fade-in">
@@ -319,20 +290,19 @@ export const UploadStep = ({ caseId, onNext: _onNext, onCanNextChange }: UploadS
         )}
 
         {/* ── Dateiliste ── */}
-        {files.length > 0 && (
+        {localFiles.length > 0 && (
           <>
             <p style={{ ...textStyles.label, marginBottom: 12 }}>
-              Hochgeladene Dateien ({files.length})
+              Hochgeladene Dateien ({localFiles.length})
             </p>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {files.map(f => (
+              {localFiles.map(f => (
                 <FileRow key={f.document_id} file={f} onRemove={removeFile} />
               ))}
             </div>
           </>
         )}
       </Card>
-
     </div>
   );
 };

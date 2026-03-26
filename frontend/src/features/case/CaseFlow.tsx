@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { colors, textStyles, typography } from "../../theme/tokens";
 import { Button, Icon } from "../../components";
 import { UploadStep } from "./steps/UploadStep";
@@ -215,16 +215,16 @@ export const CaseFlow = ({
   const showBack = step > 0;
 
   // Step-Änderungen melden
-  useLayoutEffect(() => { onStepChange?.(step); }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { onStepChange?.(step); }, [step, onStepChange]);
 
-  // Fall anlegen (StrictMode-Guard)
+  // Fall anlegen (StrictMode-Guard: leeres Array ist bewusst — einmaliger Mount-Effekt)
   useEffect(() => {
     if (caseId || hasCreatedRef.current) return;
     hasCreatedRef.current = true;
     casesApi.create()
       .then(r => { setCaseId(r.case_id); onCaseCreated?.(r.case_id); })
       .catch(() => { hasCreatedRef.current = false; setCaseError("Fall konnte nicht erstellt werden. Bitte Seite neu laden."); });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- einmaliger Mount-Effekt, kein StrictMode-Problem durch Ref-Guard
 
   // Dokumente zentral pollen – alle Steps nutzen diese Liste
   useEffect(() => {
@@ -322,7 +322,7 @@ export const CaseFlow = ({
           padding: step === 1 ? 0 : "28px 32px 48px",
           background: step === 1 ? colors.white : colors.bg,
         }}>
-          {step === 0 && <UploadStep caseId={caseId} onNext={next} onCanNextChange={setUploadHasFiles} />}
+          {step === 0 && <UploadStep caseId={caseId} docs={docs} onNext={next} onCanNextChange={setUploadHasFiles} />}
           {step === 1 && (
             <AnalysisStep
               caseId={caseId}

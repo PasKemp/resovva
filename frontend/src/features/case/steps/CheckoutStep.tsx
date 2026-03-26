@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { colors, textStyles, typography } from "../../../theme/tokens";
 import { Button, Card, Icon } from "../../../components";
+import { checkoutApi } from "../../../services/api";
 import type { Page } from "../../../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -20,8 +21,32 @@ interface CheckoutStepProps {
   setPage: (p: Page) => void;
 }
 
-export const CheckoutStep = ({ caseId: _caseId, onBack: _onBack, setPage }: CheckoutStepProps) => {
-  const [agreed, setAgreed] = useState(false);
+/**
+ * Step 4: Bezahlschritt — startet Stripe-Checkout-Session via API,
+ * navigiert bei Erfolg zur Dossier-Seite.
+ */
+export const CheckoutStep: React.FC<CheckoutStepProps> = ({ caseId, onBack: _onBack, setPage }) => {
+  const [agreed,   setAgreed]   = useState(false);
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState<string | null>(null);
+
+  const handleOrder = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const resp = await checkoutApi.create(caseId);
+      // Weiterleitung zur Stripe-Checkout-URL (falls vorhanden), sonst Dossier
+      if (resp.checkout_url) {
+        window.location.href = resp.checkout_url;
+      } else {
+        setPage("dossier");
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Bestellung fehlgeschlagen. Bitte erneut versuchen.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="fade-in">
@@ -100,18 +125,23 @@ export const CheckoutStep = ({ caseId: _caseId, onBack: _onBack, setPage }: Chec
               </span>
             </label>
 
+            {error && (
+              <p style={{ fontSize: 11, color: colors.redText, fontFamily: typography.sans, marginBottom: 12 }}>
+                {error}
+              </p>
+            )}
+
             <Button
-              onClick={() => setPage("dossier")}
-              disabled={!agreed}
+              onClick={handleOrder}
+              disabled={!agreed || loading}
               size="md"
               style={{ width: "100%", justifyContent: "center" }}
             >
-              Kostenpflichtig bestellen
+              {loading ? "Wird verarbeitet…" : "Kostenpflichtig bestellen"}
             </Button>
           </div>
         </div>
       </Card>
-
     </div>
   );
 };

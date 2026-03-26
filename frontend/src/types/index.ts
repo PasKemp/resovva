@@ -98,8 +98,9 @@ export interface ExtractedData {
 }
 
 export interface TimelineEvent {
-  date: string;
-  event: string;
+  id:     string;
+  date:   string;
+  event:  string;
   source: "E-Mail" | "Foto" | "Post" | "Telefonat" | "Eigene Angabe" | "Sonstiges";
 }
 

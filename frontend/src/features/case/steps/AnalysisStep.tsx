@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { colors, textStyles, typography } from "../../../theme/tokens";
 import { Icon } from "../../../components";
 import { OpponentConfirmation } from "../../../components/OpponentConfirmation";
@@ -10,10 +10,10 @@ import type { ExtractionResult, ExtractionField, OpponentCategory } from "../../
 import { CATEGORY_FIELDS, FIELD_LABELS_MAP } from "../../../constants/categoryFields";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Step 2 — KI-Analyse & Datenschutz (FIX1)
+// Step 2 — KI-Analyse & Datenschutz
 //
 // Volles Viewport-Layout, 3 Spalten:
-//   Spalte 1 (240px):  Dokument-Navigator (click-to-select)
+//   Spalte 1 (240px):  Dokument-Navigator (click-to-select, in CaseFlow)
 //   Spalte 2 (flex-1): Dokumentinhalt des gewählten Dokuments
 //   Spalte 3 (380px):  Erkannte Daten bestätigen (Formular)
 //
@@ -25,12 +25,12 @@ import { CATEGORY_FIELDS, FIELD_LABELS_MAP } from "../../../constants/categoryFi
 type Phase = "ocr" | "analyzing" | "review";
 
 interface AnalysisStepProps {
-  caseId:           string;
-  onNext:           () => void;
-  onBack:           () => void;
-  docs:             DocumentListItem[];
-  selectedDoc:      DocumentListItem | null;
-  onActionChange?:  (cfg: { label: string; disabled: boolean; handler: () => void }) => void;
+  caseId:          string;
+  onNext:          () => void;
+  onBack:          () => void;
+  docs:            DocumentListItem[];
+  selectedDoc:     DocumentListItem | null;
+  onActionChange?: (cfg: { label: string; disabled: boolean; handler: () => void }) => void;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -56,11 +56,11 @@ function splitAndHighlight(text: string, snippets: string[]): JSX.Element {
 
 // ── Column A: Document content (flex-1, fills space from CaseFlow's DocNav) ───
 
-const DocContent = ({
-  doc, snippets, phase,
-}: {
-  doc: DocumentListItem | null; snippets: string[]; phase: Phase;
-}) => {
+const DocContent: React.FC<{
+  doc: DocumentListItem | null;
+  snippets: string[];
+  phase: Phase;
+}> = ({ doc, snippets, phase }) => {
   const text = doc?.masked_text_preview ?? "";
 
   return (
@@ -106,7 +106,6 @@ const DocContent = ({
                 }} />
               ))}
             </div>
-            <style>{`@keyframes bounce{0%,80%,100%{transform:scale(.8);opacity:.5}40%{transform:scale(1.2);opacity:1}}`}</style>
           </div>
         )}
 
@@ -115,7 +114,6 @@ const DocContent = ({
             <div style={{ textAlign: "center" }}>
               <div style={{ width: 18, height: 18, border: `2px solid ${colors.orange}`, borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 10px" }} />
               <p style={{ ...textStyles.small, color: colors.muted }}>Dokument wird gescannt…</p>
-              <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
             </div>
           </div>
         )}
@@ -164,11 +162,12 @@ const INPUT: React.CSSProperties = {
   outline: "none", background: colors.bg, boxSizing: "border-box",
 };
 
-const FieldInput = ({
-  field, value, onChange, docs,
-}: {
-  field: ExtractionField; value: string; onChange: (k: string, v: string) => void; docs: DocumentListItem[];
-}) => {
+const FieldInput: React.FC<{
+  field:    ExtractionField;
+  value:    string;
+  onChange: (k: string, v: string) => void;
+  docs:     DocumentListItem[];
+}> = ({ field, value, onChange, docs }) => {
   const meta      = FIELD_LABELS_MAP[field.key];
   const sourceDoc = field.source_document_id
     ? docs.find(d => d.document_id === field.source_document_id)
@@ -213,27 +212,24 @@ const FieldInput = ({
 interface RightPanelProps {
   phase:            Phase;
   allOcrDone:       boolean;
-  starting:         boolean;
   confirming:       boolean;
   canConfirm:       boolean;
   error:            string | null;
   extraction:       ExtractionResult | null;
   docs:             DocumentListItem[];
   fieldValues:      Record<string, string>;
-  oppCat:           OpponentCategory;
-  oppName:          string;
   reviewFields:     ExtractionField[];
   autoFields:       ExtractionField[];
   onFieldChange:    (k: string, v: string) => void;
   onOpponentChange: (cat: OpponentCategory, name: string) => void;
 }
 
-const RightPanel = ({
-  phase, allOcrDone, starting: _starting, confirming, canConfirm, error,
-  extraction, docs, fieldValues, oppCat: _oppCat, oppName: _oppName,
+const RightPanel: React.FC<RightPanelProps> = ({
+  phase, allOcrDone, confirming, canConfirm, error,
+  extraction, docs, fieldValues,
   reviewFields, autoFields,
   onFieldChange, onOpponentChange,
-}: RightPanelProps) => {
+}) => {
   const [expandAuto, setExpandAuto] = useState(false);
 
   return (
@@ -287,7 +283,6 @@ const RightPanel = ({
                   animation: "spin 0.8s linear infinite", flexShrink: 0,
                 }} />
                 <p style={{ ...textStyles.small, color: colors.mid }}>Dokumente werden gescannt…</p>
-                <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
               </div>
             ) : (
               <div style={{
@@ -314,7 +309,6 @@ const RightPanel = ({
               ))}
             </div>
             <p style={{ ...textStyles.small, color: colors.muted }}>KI analysiert…</p>
-            <style>{`@keyframes bounce{0%,80%,100%{transform:scale(.8);opacity:.5}40%{transform:scale(1.2);opacity:1}}`}</style>
           </div>
         )}
 
@@ -407,7 +401,12 @@ const RightPanel = ({
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
-export const AnalysisStep = ({ caseId, onNext, onBack: _onBack, docs, selectedDoc, onActionChange }: AnalysisStepProps) => {
+/**
+ * Step 2: KI-Analyse — OCR-Ergebnis prüfen, Daten bestätigen (Human-in-the-Loop).
+ */
+export const AnalysisStep: React.FC<AnalysisStepProps> = ({
+  caseId, onNext, onBack: _onBack, docs, selectedDoc, onActionChange,
+}) => {
   const [phase,       setPhase]      = useState<Phase>("ocr");
   const [extraction,  setExtraction] = useState<ExtractionResult | null>(null);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
@@ -418,6 +417,34 @@ export const AnalysisStep = ({ caseId, onNext, onBack: _onBack, docs, selectedDo
   const [error,       setError]      = useState<string | null>(null);
   const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const initExtraction = useCallback((r: ExtractionResult) => {
+    setExtraction(r);
+    const vals: Record<string, string> = {};
+    for (const f of r.fields) vals[f.key] = f.value != null ? String(f.value) : "";
+    setFieldValues(vals);
+    setOppCat((r.opponent.category as OpponentCategory) ?? "sonstiges");
+    setOppName(r.opponent.name ?? "");
+  }, []);
+
+  const buildLegacy = useCallback((resp: AnalysisResultResponse) => {
+    const d = resp.extracted_data;
+    if (!d) return;
+    const r: ExtractionResult = {
+      fields: [
+        { key: "malo_id",        value: d.malo_id ?? null,        confidence: 0.6,  needs_review: !d.malo_id,        auto_accepted: !!d.malo_id,        source_document_id: null, source_text_snippet: null, field_ignored: false },
+        { key: "meter_number",   value: d.meter_number ?? null,   confidence: 0.6,  needs_review: !d.meter_number,   auto_accepted: !!d.meter_number,   source_document_id: null, source_text_snippet: null, field_ignored: false },
+        { key: "dispute_amount", value: d.dispute_amount ?? null, confidence: 0.85, needs_review: false,             auto_accepted: !!d.dispute_amount, source_document_id: null, source_text_snippet: null, field_ignored: false },
+      ],
+      opponent: {
+        category:     (d.opponent_category as OpponentCategory | null) ?? null,
+        name:         d.opponent_name ?? d.network_operator ?? null,
+        confidence:   0.5,
+        needs_review: true,
+      },
+    };
+    initExtraction(r);
+  }, [initExtraction]);
+
   // On mount: check if analysis already done
   useEffect(() => {
     extractionApi.getFields(caseId)
@@ -427,7 +454,7 @@ export const AnalysisStep = ({ caseId, onNext, onBack: _onBack, docs, selectedDo
           .then(r => { if (r.extracted_data) { buildLegacy(r); setPhase("review"); } })
           .catch(() => {});
       });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [caseId, initExtraction, buildLegacy]);
 
   // Poll for analysis result
   useEffect(() => {
@@ -452,35 +479,7 @@ export const AnalysisStep = ({ caseId, onNext, onBack: _onBack, docs, selectedDo
       }
     }, 2500);
     return () => { if (analysisPollRef.current) clearInterval(analysisPollRef.current); };
-  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const initExtraction = (r: ExtractionResult) => {
-    setExtraction(r);
-    const vals: Record<string, string> = {};
-    for (const f of r.fields) vals[f.key] = f.value != null ? String(f.value) : "";
-    setFieldValues(vals);
-    setOppCat((r.opponent.category as OpponentCategory) ?? "sonstiges");
-    setOppName(r.opponent.name ?? "");
-  };
-
-  const buildLegacy = (resp: AnalysisResultResponse) => {
-    const d = resp.extracted_data;
-    if (!d) return;
-    const r: ExtractionResult = {
-      fields: [
-        { key: "malo_id",        value: d.malo_id ?? null,        confidence: 0.6,  needs_review: !d.malo_id,        auto_accepted: !!d.malo_id,        source_document_id: null, source_text_snippet: null, field_ignored: false },
-        { key: "meter_number",   value: d.meter_number ?? null,   confidence: 0.6,  needs_review: !d.meter_number,   auto_accepted: !!d.meter_number,   source_document_id: null, source_text_snippet: null, field_ignored: false },
-        { key: "dispute_amount", value: d.dispute_amount ?? null, confidence: 0.85, needs_review: false,             auto_accepted: !!d.dispute_amount, source_document_id: null, source_text_snippet: null, field_ignored: false },
-      ],
-      opponent: {
-        category:     (d.opponent_category as OpponentCategory | null) ?? null,
-        name:         d.opponent_name ?? d.network_operator ?? null,
-        confidence:   0.5,
-        needs_review: true,
-      },
-    };
-    initExtraction(r);
-  };
+  }, [phase, caseId, initExtraction, buildLegacy]);
 
   const allOcrDone     = docs.length > 0 && docs.every(d => d.ocr_status === "completed" || d.ocr_status === "error");
   const fieldConfig    = CATEGORY_FIELDS[oppCat] ?? CATEGORY_FIELDS["sonstiges"];
@@ -492,7 +491,7 @@ export const AnalysisStep = ({ caseId, onNext, onBack: _onBack, docs, selectedDo
   const canConfirm     = phase === "review" && opponentReady &&
     reviewFields.every(f => (fieldValues[f.key] ?? "").trim() !== "");
 
-  const handleStart = async () => {
+  const handleStart = useCallback(async () => {
     setStarting(true);
     setError(null);
     try {
@@ -505,9 +504,9 @@ export const AnalysisStep = ({ caseId, onNext, onBack: _onBack, docs, selectedDo
     } finally {
       setStarting(false);
     }
-  };
+  }, [caseId]);
 
-  const handleConfirm = async () => {
+  const handleConfirm = useCallback(async () => {
     setConfirming(true);
     setError(null);
     try {
@@ -529,7 +528,7 @@ export const AnalysisStep = ({ caseId, onNext, onBack: _onBack, docs, selectedDo
     } finally {
       setConfirming(false);
     }
-  };
+  }, [caseId, oppCat, oppName, fieldValues, onNext]);
 
   // Header-Button-State nach oben kommunizieren
   useEffect(() => {
@@ -548,7 +547,7 @@ export const AnalysisStep = ({ caseId, onNext, onBack: _onBack, docs, selectedDo
         handler:  handleConfirm,
       });
     }
-  }, [phase, allOcrDone, starting, confirming, canConfirm]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [phase, allOcrDone, starting, confirming, canConfirm, handleStart, handleConfirm, onActionChange]);
 
   const snippets = extraction?.fields.map(f => f.source_text_snippet).filter(Boolean) as string[] ?? [];
 
@@ -565,15 +564,12 @@ export const AnalysisStep = ({ caseId, onNext, onBack: _onBack, docs, selectedDo
       <RightPanel
         phase={phase}
         allOcrDone={allOcrDone}
-        starting={starting}
         confirming={confirming}
         canConfirm={canConfirm}
         error={error}
         extraction={extraction}
         docs={docs}
         fieldValues={fieldValues}
-        oppCat={oppCat}
-        oppName={oppName}
         reviewFields={reviewFields}
         autoFields={autoFields}
         onFieldChange={(k, v) => setFieldValues(p => ({ ...p, [k]: v }))}
