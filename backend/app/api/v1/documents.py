@@ -56,6 +56,7 @@ class DocumentEntry(BaseModel):
     document_type: str
     ocr_status: str
     created_at: str
+    masked_text_preview: Optional[str] = None  # US-9.3: erste 500 Zeichen für Split-View
 
 
 class DocumentListResponse(BaseModel):
@@ -244,6 +245,7 @@ def list_documents(
                 document_type=d.document_type,
                 ocr_status=d.ocr_status,
                 created_at=d.created_at.isoformat(),
+                masked_text_preview=d.masked_text[:500] if d.masked_text else None,
             )
             for d in case.documents
         ]

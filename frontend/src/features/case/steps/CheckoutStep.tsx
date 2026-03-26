@@ -20,7 +20,7 @@ interface CheckoutStepProps {
   setPage: (p: Page) => void;
 }
 
-export const CheckoutStep = ({ caseId: _caseId, onBack, setPage }: CheckoutStepProps) => {
+export const CheckoutStep = ({ caseId: _caseId, onBack: _onBack, setPage }: CheckoutStepProps) => {
   const [agreed, setAgreed] = useState(false);
 
   return (
@@ -112,9 +112,6 @@ export const CheckoutStep = ({ caseId: _caseId, onBack, setPage }: CheckoutStepP
         </div>
       </Card>
 
-      <div style={{ display: "flex", justifyContent: "flex-start" }}>
-        <Button variant="outline" onClick={onBack}>Zurück</Button>
-      </div>
     </div>
   );
 };

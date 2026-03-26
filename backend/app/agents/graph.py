@@ -1,14 +1,15 @@
 """
-LangGraph-Graph – EPIC 3: KI-Analyse & Extraktion.
+LangGraph-Graph – EPIC 3 & EPIC 9: KI-Analyse & Extraktion.
 
 Flow:
-  load_docs → extract → [check_missing] → mastr_lookup
-                         ↘ missing_data → END (WAITING_FOR_USER via DB)
-                                            ↓
-                                    [interrupt_before confirm]
-                                            ↓
-                                         confirm → END
+  load_docs → detect_opponent → extract → [check_missing] → mastr_lookup
+                                            ↘ missing_data → END (WAITING_FOR_USER via DB)
+                                                               ↓
+                                                       [interrupt_before confirm]
+                                                               ↓
+                                                            confirm → END
 
+detect_opponent (US-9.1): Erkennt Streitpartei-Kategorie und Namen.
 Interrupt-Punkt: vor 'confirm' (US-3.5 Human-in-the-Loop).
 Resume: POST /cases/{case_id}/analysis/confirm → graph.ainvoke(None, config)
 """
@@ -21,6 +22,7 @@ import uuid as _uuid
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from app.agents.nodes.detect_opponent import node_detect_opponent
 from app.agents.nodes.extract import check_missing_data, node_extract
 from app.agents.nodes.mastr_lookup import node_mastr_lookup
 from app.agents.state import AgentState
@@ -108,6 +110,11 @@ async def _node_confirm(state: AgentState) -> AgentState:
         "dispute_amount": state.get("dispute_amount"),
         "currency": state.get("currency"),
         "network_operator": state.get("network_operator"),
+        "opponent_category": state.get("opponent_category"),
+        "opponent_name": state.get("opponent_name"),
+        "field_confidences": state.get("field_confidences") or {},
+        "source_snippets": state.get("source_snippets") or {},
+        "source_doc_ids": state.get("source_doc_ids") or {},
         "confirmed": True,
     }
 
@@ -115,6 +122,8 @@ async def _node_confirm(state: AgentState) -> AgentState:
         case = db.query(Case).filter(Case.id == case_uuid).first()
         if case:
             case.extracted_data = confirmed
+            case.opponent_category = state.get("opponent_category")
+            case.opponent_name = state.get("opponent_name")
             # Status zurücksetzen (Epic 4 wird hier weiterführen)
             case.status = "DRAFT"
             db.commit()
@@ -157,10 +166,18 @@ async def _node_missing_data(state: AgentState) -> AgentState:
                 "dispute_amount": state.get("dispute_amount"),
                 "currency": state.get("currency"),
                 "network_operator": None,
+                "opponent_category": state.get("opponent_category"),
+                "opponent_name": state.get("opponent_name"),
+                "opponent_confidence": state.get("opponent_confidence", 0.0),
+                "field_confidences": state.get("field_confidences") or {},
+                "source_snippets": state.get("source_snippets") or {},
+                "source_doc_ids": state.get("source_doc_ids") or {},
                 "extracted_at": datetime.now(timezone.utc).isoformat(),
                 "confirmed": False,
                 "missing_data": True,
             }
+            case.opponent_category = state.get("opponent_category")
+            case.opponent_name = state.get("opponent_name")
             case.status = "WAITING_FOR_USER"
             db.commit()
             logger.info("Case %s: fehlende Kerndaten – Status → WAITING_FOR_USER.", case_uuid)
@@ -191,13 +208,15 @@ def build_graph(checkpointer) -> CompiledStateGraph:
     graph = StateGraph(AgentState)
 
     graph.add_node("load_docs", _node_load_docs)
+    graph.add_node("detect_opponent", node_detect_opponent)  # US-9.1
     graph.add_node("extract", node_extract)
     graph.add_node("missing_data", _node_missing_data)
     graph.add_node("mastr_lookup", node_mastr_lookup)
     graph.add_node("confirm", _node_confirm)
 
     graph.set_entry_point("load_docs")
-    graph.add_edge("load_docs", "extract")
+    graph.add_edge("load_docs", "detect_opponent")
+    graph.add_edge("detect_opponent", "extract")
 
     # US-3.3: Early-Exit wenn beide Kerndaten fehlen
     graph.add_conditional_edges(

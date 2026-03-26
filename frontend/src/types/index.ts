@@ -29,6 +29,8 @@ export interface ApiCase {
   created_at: string;
   status: CaseStatusApi;
   network_operator: string | null;
+  opponent_category: string | null;
+  opponent_name: string | null;
   document_count: number;
 }
 
@@ -48,18 +50,57 @@ export interface UploadedFile {
   date: string;
 }
 
+/** Streitpartei-Kategorien (US-9.1). */
+export type OpponentCategory =
+  | "strom"
+  | "gas"
+  | "wasser"
+  | "versicherung"
+  | "mobilfunk_internet"
+  | "amt_behoerde"
+  | "vermieter_immobilien"
+  | "sonstiges";
+
+/** Extrahiertes Feld mit Confidence-Score (US-9.2). */
+export interface ExtractionField {
+  key:                  string;
+  value:                string | number | null;
+  confidence:           number;
+  needs_review:         boolean;
+  auto_accepted:        boolean;
+  source_document_id:   string | null;
+  source_text_snippet:  string | null;
+  field_ignored:        boolean;
+}
+
+/** Erkannte Streitpartei (US-9.1). */
+export interface OpponentData {
+  category:     OpponentCategory | null;
+  name:         string | null;
+  confidence:   number;
+  needs_review: boolean;
+}
+
+/** Response von GET /cases/{caseId}/extraction-result (US-9.2). */
+export interface ExtractionResult {
+  fields:   ExtractionField[];
+  opponent: OpponentData;
+}
+
 /** Extrahierte und vom Nutzer bestätigbare Fall-Kerndaten (US-3.2 / US-3.5). */
 export interface ExtractedData {
-  malo_id:          string | null;
-  meter_number:     string | null;
-  dispute_amount:   number | null;
-  network_operator: string | null;
+  malo_id:           string | null;
+  meter_number:      string | null;
+  dispute_amount:    number | null;
+  network_operator:  string | null;
+  opponent_category: string | null;
+  opponent_name:     string | null;
 }
 
 export interface TimelineEvent {
   date: string;
   event: string;
-  source: "E-Mail" | "Foto" | "Post" | "Telefonat" | "Sonstiges";
+  source: "E-Mail" | "Foto" | "Post" | "Telefonat" | "Eigene Angabe" | "Sonstiges";
 }
 
 // ── Component prop interfaces ─────────────────────────────────────────────────

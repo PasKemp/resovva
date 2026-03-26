@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
@@ -84,12 +84,14 @@ class AnalysisResultResponse(BaseModel):
 
 
 class ConfirmAnalysisRequest(BaseModel):
-    """Request für PUT /cases/{case_id}/analysis/confirm (US-3.5)."""
+    """Request für PUT /cases/{case_id}/analysis/confirm (US-3.5, US-9.4)."""
 
     meter_number: Optional[str] = None
     malo_id: Optional[str] = None
     dispute_amount: Optional[float] = None
     network_operator: Optional[str] = None
+    opponent_category: Optional[str] = None
+    opponent_name: Optional[str] = None
 
 
 class ConfirmAnalysisResponse(BaseModel):
@@ -106,6 +108,42 @@ class CaseStatusResponse(BaseModel):
     total: int
     completed: int
     preview: Optional[str] = None
+
+
+class ExtractionFieldResponse(BaseModel):
+    """Einzelnes extrahiertes Feld mit Confidence-Score (US-9.2)."""
+
+    key: str
+    value: Optional[Any] = None
+    confidence: float = 0.0
+    needs_review: bool = True
+    auto_accepted: bool = False
+    source_document_id: Optional[str] = None
+    source_text_snippet: Optional[str] = None
+    field_ignored: bool = False
+
+
+class OpponentResponse(BaseModel):
+    """Erkannte Streitpartei (US-9.1)."""
+
+    category: Optional[str] = None
+    name: Optional[str] = None
+    confidence: float = 0.0
+    needs_review: bool = True
+
+
+class ExtractionResultResponse(BaseModel):
+    """Response für GET /cases/{case_id}/extraction-result (US-9.2)."""
+
+    fields: List[ExtractionFieldResponse]
+    opponent: OpponentResponse
+
+
+class UpdateOpponentRequest(BaseModel):
+    """Request für PATCH /cases/{case_id} (US-9.4)."""
+
+    opponent_category: Optional[str] = None
+    opponent_name: Optional[str] = None
 
 
 # ── GET /cases ────────────────────────────────────────────────────────────────
@@ -280,6 +318,12 @@ async def _run_analysis_background(case_id: str) -> None:
         "dispute_amount": None,
         "currency": None,
         "network_operator": None,
+        "opponent_category": None,
+        "opponent_name": None,
+        "opponent_confidence": 0.0,
+        "field_confidences": {},
+        "source_snippets": {},
+        "source_doc_ids": {},
         "chronology": [],
         "missing_info": [],
         "dossier_ready": False,
@@ -388,6 +432,8 @@ async def confirm_analysis(
         "malo_id": payload.malo_id,
         "dispute_amount": payload.dispute_amount,
         "network_operator": payload.network_operator,
+        "opponent_category": payload.opponent_category,
+        "opponent_name": payload.opponent_name,
     }
     try:
         agent_app = await get_agent_app()
@@ -451,6 +497,106 @@ def get_case_status(
         completed=completed_count,
         preview=preview,
     )
+
+
+# ── GET /cases/{case_id}/extraction-result ────────────────────────────────────
+
+
+@router.get("/{case_id}/extraction-result", response_model=ExtractionResultResponse)
+def get_extraction_result(
+    case_id: str,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+) -> ExtractionResultResponse:
+    """
+    Gibt alle extrahierten Felder mit Confidence-Scores zurück (US-9.2).
+
+    Liefert Felder mit needs_review/auto_accepted-Flag für die Split-View.
+    Wirft 404 solange die Analyse noch nicht abgeschlossen ist.
+
+    Raises:
+        HTTPException 404: Analyse noch nicht abgeschlossen.
+    """
+    case = _get_owned_case(case_id, current_user, db)
+    data = case.extracted_data or {}
+
+    if not data or "extracted_at" not in data:
+        raise HTTPException(status_code=404, detail="Analyse noch nicht abgeschlossen.")
+
+    field_confidences: dict = data.get("field_confidences", {})
+    source_snippets: dict = data.get("source_snippets", {})
+    source_doc_ids: dict = data.get("source_doc_ids", {})
+
+    CONFIDENCE_THRESHOLD = 0.8
+
+    def _make_field(key: str, value: object) -> ExtractionFieldResponse:
+        confidence = field_confidences.get(key, 0.6 if value is not None else 0.0)
+        return ExtractionFieldResponse(
+            key=key,
+            value=value,
+            confidence=confidence,
+            needs_review=confidence < CONFIDENCE_THRESHOLD,
+            auto_accepted=confidence >= CONFIDENCE_THRESHOLD and value is not None,
+            source_document_id=source_doc_ids.get(key),
+            source_text_snippet=source_snippets.get(key),
+        )
+
+    fields = [
+        _make_field("malo_id", data.get("malo_id")),
+        _make_field("meter_number", data.get("meter_number")),
+        _make_field("dispute_amount", data.get("dispute_amount")),
+    ]
+
+    opponent_confidence = data.get("opponent_confidence", 0.0)
+    opponent = OpponentResponse(
+        category=data.get("opponent_category") or case.opponent_category,
+        name=data.get("opponent_name") or case.opponent_name,
+        confidence=opponent_confidence,
+        needs_review=opponent_confidence < CONFIDENCE_THRESHOLD,
+    )
+
+    return ExtractionResultResponse(fields=fields, opponent=opponent)
+
+
+# ── PATCH /cases/{case_id} ────────────────────────────────────────────────────
+
+
+@router.patch("/{case_id}", response_model=dict)
+def update_case_opponent(
+    case_id: str,
+    payload: UpdateOpponentRequest,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    Aktualisiert Streitpartei-Kategorie und -Name (US-9.4).
+
+    Nutzer bestätigt oder korrigiert den KI-Vorschlag über die Kategorie-Chips.
+
+    Raises:
+        HTTPException 404: Fall nicht gefunden.
+    """
+    case = _get_owned_case(case_id, current_user, db)
+
+    if payload.opponent_category is not None:
+        case.opponent_category = payload.opponent_category
+        # Auch in extracted_data synchron halten
+        data = dict(case.extracted_data or {})
+        data["opponent_category"] = payload.opponent_category
+        case.extracted_data = data
+
+    if payload.opponent_name is not None:
+        case.opponent_name = payload.opponent_name
+        data = dict(case.extracted_data or {})
+        data["opponent_name"] = payload.opponent_name
+        case.extracted_data = data
+
+    db.commit()
+    logger.info(
+        "Case %s: Streitpartei aktualisiert – Kategorie=%s Name=%s",
+        case_id, payload.opponent_category, payload.opponent_name,
+    )
+    return {"status": "updated"}
 
 
 # ── Private Hilfsfunktionen ───────────────────────────────────────────────────

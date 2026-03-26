@@ -134,7 +134,11 @@ def search_similar(
             with_payload=True,
         )
         return [
-            {"text": p.payload.get("text", ""), "score": p.score}
+            {
+                "text": p.payload.get("text", ""),
+                "score": p.score,
+                "document_id": p.payload.get("document_id"),
+            }
             for p in response.points
         ]
     except Exception as exc:

@@ -127,6 +127,9 @@ class Case(Base):
         String(255), unique=True, nullable=True
     )
     extracted_data: Mapped[dict] = mapped_column(JSONB, default=dict)
+    # US-9.1: Generisches Streitparteien-Modell (ersetzt network_operator in extracted_data)
+    opponent_category: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    opponent_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -152,6 +155,8 @@ class Case(Base):
             "extracted_data": self.extracted_data,
             "document_count": len(self.documents),
             "network_operator": (self.extracted_data or {}).get("network_operator"),
+            "opponent_category": self.opponent_category,
+            "opponent_name": self.opponent_name,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }

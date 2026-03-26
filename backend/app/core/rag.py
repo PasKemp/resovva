@@ -112,6 +112,31 @@ def chunk_and_embed(document_id: str, case_id: str, text: str) -> int:
 # ── Retrieval ──────────────────────────────────────────────────────────────────
 
 
+def search_rag_with_meta(query: str, case_id: str, limit: int = 5) -> List[dict]:
+    """
+    Semantische Suche – gibt Treffer mit Metadaten zurück (US-9.2).
+
+    Returns:
+        Liste von {text: str, document_id: str | None} – leer wenn Qdrant unavailable.
+    """
+    from app.core.config import get_settings
+
+    query_embs = embed_texts([query])
+    if not query_embs:
+        return []
+
+    settings = get_settings()
+    results = search_similar(
+        collection=settings.qdrant_collection,
+        query_embedding=query_embs[0],
+        limit=limit,
+        case_id=case_id,
+        url=settings.qdrant_url,
+        api_key=settings.qdrant_api_key,
+    )
+    return [{"text": r["text"], "document_id": r.get("document_id")} for r in results]
+
+
 def search_rag(query: str, case_id: str, limit: int = 5) -> List[str]:
     """
     Semantische Suche in den eingebetteten Dokumenten eines Falls (US-3.2).

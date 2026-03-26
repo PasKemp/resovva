@@ -95,8 +95,9 @@ def _run_column_migrations(engine) -> None:
         # Epic 2 (US-2.4 & US-2.5): OCR-Status und maskierter Text in documents
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS ocr_status  VARCHAR(20)  NOT NULL DEFAULT 'pending'",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS masked_text TEXT",
-        # Epic 2 (US-2.3): Mobile-Upload-Token-Tabelle (create_all übernimmt das,
-        # aber zur Sicherheit die kritischen Spalten hier nochmal absichern)
+        # Epic 9 (US-9.1): Generisches Streitparteien-Modell
+        "ALTER TABLE cases ADD COLUMN IF NOT EXISTS opponent_category VARCHAR(50)",
+        "ALTER TABLE cases ADD COLUMN IF NOT EXISTS opponent_name    VARCHAR(255)",
     ]
     with engine.begin() as conn:
         for sql in migrations:

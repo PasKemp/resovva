@@ -1,132 +1,101 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { colors, textStyles, typography } from "../../theme/tokens";
-import { Icon } from "../../components";
+import { Button, Icon } from "../../components";
 import { UploadStep } from "./steps/UploadStep";
 import { AnalysisStep } from "./steps/AnalysisStep";
 import { TimelineStep } from "./steps/TimelineStep";
 import { CheckoutStep } from "./steps/CheckoutStep";
 import { casesApi, caseStatusApi } from "../../services/api";
+import type { DocumentListItem } from "../../services/api";
 import type { WithSetPage } from "../../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CaseFlow — 4-Schritt-Wizard (US-7.7: Stepper-Navigation & Dokument-Sidebar)
+// CaseFlow — Konsistentes Full-Width-Layout über alle 4 Schritte:
+//
+//  ┌──────────────┬──────────────────────────────────────────────────────┐
+//  │ DOC-NAV      │  SCHRITT-INHALT                                      │
+//  │ 240px fix    │  flex-1 (wächst mit dem Viewport)                    │
+//  │  (immer      │                                                      │
+//  │   sichtbar)  │  Step 1: Upload-Formular                             │
+//  │              │  Step 2: [Dokument-Text flex-1] | [Form 380px]       │
+//  │              │  Step 3: Timeline                                    │
+//  │              │  Step 4: Checkout                                    │
+//  └──────────────┴──────────────────────────────────────────────────────┘
 // ─────────────────────────────────────────────────────────────────────────────
 
 type StepIndex = 0 | 1 | 2 | 3;
 
-interface StepMeta {
-  label: string;
-  sublabel: string;
-  icon: string;
-}
+interface StepMeta { label: string; sublabel: string; icon: string; }
 
-// Schritt-Beschreibungstexte (US-7.7: in separater Konstante pflegbar)
 const STEPS: StepMeta[] = [
-  { label: "Upload", sublabel: "Dokumente & Scan", icon: "upload" },
-  { label: "Analyse", sublabel: "KI & Datenschutz", icon: "brain" },
-  { label: "Roter Faden", sublabel: "Chronologie", icon: "list" },
-  { label: "Abschluss", sublabel: "Überblick & Zahlung", icon: "folder" },
+  { label: "Upload",      sublabel: "Dokumente & Scan",    icon: "upload" },
+  { label: "Analyse",     sublabel: "KI & Datenschutz",    icon: "brain"  },
+  { label: "Roter Faden", sublabel: "Chronologie",         icon: "list"   },
+  { label: "Abschluss",   sublabel: "Überblick & Zahlung", icon: "folder" },
 ];
 
 // ── Stepper ───────────────────────────────────────────────────────────────────
 
-interface StepperProps {
-  current: StepIndex;
-  onStep: (i: StepIndex) => void;
-}
-
 const StepDot = ({ index, current }: { index: number; current: number }) => {
-  const done = index < current;
+  const done   = index < current;
   const active = index === current;
   return (
     <div style={{
-      width: 34,
-      height: 34,
-      borderRadius: "50%",
-      background: done ? colors.teal : active ? colors.orange : colors.bg,
-      border: `2px solid ${done ? colors.teal : active ? colors.orange : colors.border}`,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      flexShrink: 0,
+      width: 40, height: 40, borderRadius: "50%", flexShrink: 0,
+      background: done ? "#27AE60" : active ? colors.orange : colors.bg,
+      border: `2px solid ${done ? "#27AE60" : active ? colors.orange : colors.border}`,
+      display: "flex", alignItems: "center", justifyContent: "center",
       transition: "all .3s ease",
     }}>
       {done
-        ? <Icon name="check" size={14} color="#fff" />
-        : <span style={{
-          fontSize: 12, fontWeight: 700, fontFamily: typography.sans,
-          color: active ? "#fff" : colors.muted,
-        }}>
-          {index + 1}
-        </span>
+        ? <Icon name="check" size={16} color="#fff" />
+        : <span style={{ fontSize: 13, fontWeight: 700, fontFamily: typography.sans, color: active ? "#fff" : colors.muted }}>
+            {index + 1}
+          </span>
       }
     </div>
   );
 };
 
-const Stepper = ({ current, onStep }: StepperProps) => (
+const Stepper = ({ current, onStep }: { current: StepIndex; onStep: (i: StepIndex) => void }) => (
   <div style={{
-    background: colors.white,
-    borderRadius: 14,
+    background: colors.white, borderRadius: 14,
     border: `1px solid ${colors.border}`,
-    padding: "16px 24px",
-    marginBottom: 24,
-    display: "flex",
-    alignItems: "center",
+    padding: "16px 28px", marginBottom: 0,
+    display: "flex", alignItems: "center", minHeight: 72,
   }}>
     {STEPS.map((step, i) => (
-      <div
-        key={i}
-        style={{ display: "flex", alignItems: "center", flex: i < STEPS.length - 1 ? 1 : 0, minWidth: 0 }}
-      >
+      <div key={i} style={{ display: "flex", alignItems: "center", flex: i < STEPS.length - 1 ? 1 : "0 0 auto" }}>
         <div
           onClick={() => onStep(i as StepIndex)}
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
+            display: "flex", alignItems: "center", gap: 10,
             cursor: i <= current ? "pointer" : "default",
-            flexShrink: 0,
-            opacity: i > current ? 0.5 : 1,
-            transition: "opacity .2s",
+            flexShrink: 0, opacity: i > current ? 0.5 : 1, transition: "opacity .2s",
           }}
         >
           <StepDot index={i} current={current} />
           <div style={{ overflow: "hidden" }}>
             <p style={{
-              fontSize: 11,
-              fontWeight: 600,
-              fontFamily: typography.sans,
-              color: i < current ? colors.teal : i === current ? colors.orange : colors.muted,
-              textTransform: "uppercase",
-              letterSpacing: "0.06em",
-              lineHeight: 1.2,
-              whiteSpace: "nowrap",
+              fontSize: 13, fontWeight: 700, fontFamily: typography.sans, lineHeight: 1.2, whiteSpace: "nowrap",
+              color: i < current ? "#27AE60" : i === current ? colors.orange : colors.muted,
             }}>
               {step.label}
             </p>
             <p style={{
-              fontSize: 12,
-              fontFamily: typography.sans,
-              color: i === current ? colors.dark : colors.muted,
-              fontWeight: i === current ? 600 : 400,
-              lineHeight: 1.3,
-              whiteSpace: "nowrap",
+              fontSize: 11, fontFamily: typography.sans, lineHeight: 1.3, whiteSpace: "nowrap",
+              color: i === current ? colors.mid : colors.muted,
+              fontWeight: i === current ? 500 : 400,
             }}>
               {step.sublabel}
             </p>
           </div>
         </div>
-
         {i < STEPS.length - 1 && (
           <div style={{
-            flex: 1,
-            height: 2,
-            background: i < current ? colors.teal : colors.border,
-            margin: "0 12px",
-            borderRadius: 2,
+            flex: 1, height: 2, minWidth: 16, margin: "0 12px", borderRadius: 2,
+            background: i < current ? "#27AE60" : "#E5E7EB",
             transition: "background .4s ease",
-            minWidth: 16,
           }} />
         )}
       </div>
@@ -134,106 +103,91 @@ const Stepper = ({ current, onStep }: StepperProps) => (
   </div>
 );
 
-// ── Dokument-Seitenleiste (US-7.7) ───────────────────────────────────────────
+// ── Persistente Dokument-Navigation (linke Spalte, immer sichtbar) ────────────
 
-interface DocEntry {
-  document_id: string;
-  filename: string;
-  ocr_status: string;
-  created_at: string;
-}
+const DocNav = ({
+  docs, selectedId, onSelect,
+}: {
+  docs: DocumentListItem[]; selectedId: string | null; onSelect: (id: string) => void;
+}) => (
+  <aside style={{
+    width: 240, flexShrink: 0,
+    borderRight: `1px solid ${colors.border}`,
+    display: "flex", flexDirection: "column",
+    background: colors.bg, overflowY: "auto",
+  }}>
+    <div style={{ padding: "16px 20px 10px", flexShrink: 0 }}>
+      <p style={textStyles.label}>Dokumente ({docs.length})</p>
+    </div>
 
-const DocumentSidebar = ({ caseId }: { caseId: string }) => {
-  const [docs, setDocs] = useState<DocEntry[]>([]);
-
-  useEffect(() => {
-    const load = () => {
-      caseStatusApi.listDocuments(caseId)
-        .then(r => setDocs(r.documents))
-        .catch(() => { });
-    };
-    load();
-    const interval = setInterval(load, 3000);
-    return () => clearInterval(interval);
-  }, [caseId]);
-
-  return (
-    <div style={{
-      width: 260,
-      background: colors.white,
-      border: `1px solid ${colors.border}`,
-      borderRadius: 14,
-      padding: "18px 16px",
-      flexShrink: 0,
-      alignSelf: "flex-start",
-      position: "sticky",
-      top: 24,
-    }}>
-      <p style={{ ...textStyles.label, marginBottom: 14 }}>
-        Dokumente ({docs.length})
+    {docs.length === 0 && (
+      <p style={{ ...textStyles.small, color: colors.muted, padding: "12px 20px" }}>
+        Noch keine Dokumente
       </p>
+    )}
 
-      {docs.length === 0 && (
-        <p style={{ ...textStyles.small, color: colors.muted, textAlign: "center", padding: "16px 0" }}>
-          Noch keine Dokumente
-        </p>
-      )}
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {docs.map(d => (
-          <div key={d.document_id} style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            padding: "8px 10px",
-            background: colors.bg,
-            borderRadius: 8,
-          }}>
+    {docs.map(doc => {
+      const active = doc.document_id === selectedId;
+      const done   = doc.ocr_status === "completed";
+      const err    = doc.ocr_status === "error";
+      return (
+        <button
+          key={doc.document_id}
+          onClick={() => onSelect(doc.document_id)}
+          style={{
+            width: "100%", textAlign: "left",
+            padding: "12px 20px",
+            borderTop: "none", borderRight: "none",
+            borderBottom: `1px solid ${colors.border}`,
+            borderLeft: `3px solid ${active ? colors.orange : "transparent"}`,
+            background: active ? colors.white : "transparent",
+            cursor: "pointer", transition: "background .15s",
+          }}
+          onMouseEnter={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = colors.white; }}
+          onMouseLeave={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+        >
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
             <div style={{
-              width: 28, height: 28,
+              width: 28, height: 28, flexShrink: 0, marginTop: 1,
               background: colors.orangeLight, borderRadius: 6,
               display: "flex", alignItems: "center", justifyContent: "center",
-              flexShrink: 0,
             }}>
               <Icon name="file" size={13} color={colors.orange} />
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ minWidth: 0 }}>
               <p style={{
-                fontFamily: typography.sans, fontSize: 12, fontWeight: 600,
-                color: colors.dark, overflow: "hidden",
-                textOverflow: "ellipsis", whiteSpace: "nowrap",
+                fontFamily: typography.sans, fontSize: 12, fontWeight: 600, color: colors.dark,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                lineHeight: 1.3, marginBottom: 3,
               }}>
-                {d.filename}
+                {doc.filename}
               </p>
               <p style={{
-                ...textStyles.small, fontSize: 11,
-                color: d.ocr_status === "completed" ? colors.greenText
-                  : d.ocr_status === "error" ? colors.redText
-                    : colors.muted,
+                fontFamily: typography.sans, fontSize: 11,
+                color: done ? "#27AE60" : err ? colors.redText : colors.orange,
               }}>
-                {d.ocr_status === "completed"            ? "✓ Analysiert"
-                  : d.ocr_status === "error"             ? "✗ Fehler"
-                  : d.ocr_status === "masking"           ? "⏳ Maskierung…"
-                  : d.ocr_status === "llama_parse_fallback" ? "⏳ Cloud-Analyse…"
-                  : d.ocr_status === "parsing"           ? "⏳ Extraktion…"
-                  : d.ocr_status === "processing"        ? "⏳ Verarbeitung…"
-                  : "⏳ Wartend"}
+                {done ? "✓ Analysiert"
+                  : err  ? "✗ Fehler"
+                  : doc.ocr_status === "masking"            ? "⏳ Maskierung…"
+                  : doc.ocr_status === "llama_parse_fallback" ? "⏳ Cloud-Analyse…"
+                  : doc.ocr_status === "parsing"            ? "⏳ Extraktion…"
+                  : "⏳ Verarbeitung…"}
               </p>
             </div>
           </div>
-        ))}
-      </div>
-    </div>
-  );
-};
+        </button>
+      );
+    })}
+  </aside>
+);
 
 // ── CaseFlow ─────────────────────────────────────────────────────────────────
 
 interface CaseFlowProps extends WithSetPage {
-  caseId?:         string;
-  initialStep?:    number;
-  onStepChange?:   (step: number) => void;
-  onCaseCreated?:  (caseId: string) => void;
+  caseId?:        string;
+  initialStep?:   number;
+  onStepChange?:  (step: number) => void;
+  onCaseCreated?: (caseId: string) => void;
 }
 
 export const CaseFlow = ({
@@ -243,86 +197,148 @@ export const CaseFlow = ({
   onStepChange,
   onCaseCreated,
 }: CaseFlowProps) => {
-  const [step,      setStep]      = useState<StepIndex>((initialStep as StepIndex) ?? 0);
-  const [caseId,    setCaseId]    = useState<string | null>(initialCaseId ?? null);
-  const [caseError, setCaseError] = useState<string | null>(null);
-
-  // Step-Änderungen nach oben melden, damit App.tsx den Stand persistiert
-  useLayoutEffect(() => {
-    onStepChange?.(step);
-  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Ref-Guard gegen React-StrictMode-Doppel-Invoke: useEffect feuert in DEV
-  // zweimal (mount → unmount → remount). Ohne Guard würden 2 Fälle angelegt.
+  const [step,          setStep]          = useState<StepIndex>((initialStep as StepIndex) ?? 0);
+  const [caseId,        setCaseId]        = useState<string | null>(initialCaseId ?? null);
+  const [caseError,     setCaseError]     = useState<string | null>(null);
+  const [docs,          setDocs]          = useState<DocumentListItem[]>([]);
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+  const [uploadHasFiles, setUploadHasFiles] = useState(false);
+  const [step1Btn, setStep1Btn] = useState<{ label: string; disabled: boolean }>({
+    label: "KI-Analyse starten", disabled: true,
+  });
+  const step1ActionRef = useRef<() => void>(() => {});
   const hasCreatedRef = useRef(false);
 
+  // "Weiter" aktiv: Step 0 nur wenn Dateien vorhanden, Step 2 immer
+  const canNext = step === 0 ? uploadHasFiles : step === 2;
+  const showNext = step === 0 || step === 2;
+  const showBack = step > 0;
+
+  // Step-Änderungen melden
+  useLayoutEffect(() => { onStepChange?.(step); }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fall anlegen (StrictMode-Guard)
   useEffect(() => {
     if (caseId || hasCreatedRef.current) return;
     hasCreatedRef.current = true;
     casesApi.create()
-      .then(r => {
-        setCaseId(r.case_id);
-        // activeCaseId in App aktualisieren – sonst gilt beim Wiederöffnen
-        // aus der Dashboard-Liste: neueId !== undefined → Step-Reset
-        onCaseCreated?.(r.case_id);
-      })
-      .catch(() => {
-        hasCreatedRef.current = false; // Reset bei Fehler damit Retry möglich
-        setCaseError("Fall konnte nicht erstellt werden. Bitte Seite neu laden.");
-      });
+      .then(r => { setCaseId(r.case_id); onCaseCreated?.(r.case_id); })
+      .catch(() => { hasCreatedRef.current = false; setCaseError("Fall konnte nicht erstellt werden. Bitte Seite neu laden."); });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // US-7.7: Zurücknavigation – nur zu bereits besuchten Schritten
+  // Dokumente zentral pollen – alle Steps nutzen diese Liste
+  useEffect(() => {
+    if (!caseId) return;
+    const load = () =>
+      caseStatusApi.listDocuments(caseId)
+        .then(r => setDocs(r.documents))
+        .catch(() => {});
+    load();
+    const t = setInterval(load, 2000);
+    return () => clearInterval(t);
+  }, [caseId]);
+
+  // Erstes Dokument automatisch selektieren
+  useEffect(() => {
+    if (docs.length > 0 && !selectedDocId) setSelectedDocId(docs[0].document_id);
+  }, [docs, selectedDocId]);
+
   const goTo = (i: StepIndex) => { if (i <= step) setStep(i); };
   const next = () => setStep(s => Math.min(s + 1, 3) as StepIndex);
   const back = () => setStep(s => Math.max(s - 1, 0) as StepIndex);
 
-  if (caseError) {
-    return (
-      <div style={{ maxWidth: 720, margin: "0 auto", padding: "48px 24px", textAlign: "center" }}>
-        <p style={{ ...textStyles.body, color: colors.redText }}>{caseError}</p>
-      </div>
-    );
-  }
+  const selectedDoc = docs.find(d => d.document_id === selectedDocId) ?? docs[0] ?? null;
 
-  if (!caseId) {
-    return (
-      <div style={{ maxWidth: 720, margin: "0 auto", padding: "48px 24px", textAlign: "center" }}>
-        <p style={{ ...textStyles.body, color: colors.muted }}>Fall wird vorbereitet…</p>
-      </div>
-    );
-  }
+  if (caseError) return (
+    <div style={{ padding: "48px 24px", textAlign: "center" }}>
+      <p style={{ ...textStyles.body, color: colors.redText }}>{caseError}</p>
+    </div>
+  );
+
+  if (!caseId) return (
+    <div style={{ padding: "48px 24px", textAlign: "center" }}>
+      <p style={{ ...textStyles.body, color: colors.muted }}>Fall wird vorbereitet…</p>
+    </div>
+  );
 
   return (
-    // US-7.7: maxWidth auf 1100px erweitert für 2-Spalten-Layout
-    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 24px 48px" }}>
-      {/* Zurück zur Übersicht – außerhalb des Steppers, kein Overlap */}
-      <div style={{ marginBottom: 12 }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
+
+      {/* ── Oberer Bereich: Zurück zur Übersicht + Stepper + Nav-Buttons ── */}
+      <div style={{ padding: "10px 20px 10px", flexShrink: 0, background: colors.white, borderBottom: `1px solid ${colors.border}` }}>
+
+        {/* Zurück zur Übersicht */}
         <button
           onClick={() => setPage("dashboard")}
           style={{
             background: "none", border: "none", cursor: "pointer",
-            display: "flex", alignItems: "center", gap: 6,
-            fontFamily: "inherit", fontSize: 13, color: "#6B7280", padding: "4px 0",
+            display: "inline-flex", alignItems: "center", gap: 6,
+            fontFamily: "inherit", fontSize: 12, color: colors.muted,
+            padding: "0 0 8px 0",
           }}
         >
           ← Übersicht
         </button>
-      </div>
-      <Stepper current={step} onStep={goTo} />
 
-      {/* US-7.7: Content + Dokument-Seitenleiste */}
-      <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
-        {/* Haupt-Content */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {step === 0 && <UploadStep caseId={caseId} onNext={next} />}
-          {step === 1 && <AnalysisStep caseId={caseId} onNext={next} onBack={back} />}
+        {/* Stepper */}
+        <Stepper current={step} onStep={goTo} />
+
+        {/* Nav-Buttons: Zurück links, Weiter rechts */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
+          <div>
+            {showBack && (
+              <Button variant="outline" size="sm" onClick={back}>
+                ← Zurück
+              </Button>
+            )}
+          </div>
+          <div>
+            {showNext && (
+              <Button size="sm" onClick={next} disabled={!canNext}>
+                Weiter <Icon name="arrow" size={13} color="#fff" />
+              </Button>
+            )}
+            {step === 1 && (
+              <Button size="sm" onClick={() => step1ActionRef.current()} disabled={step1Btn.disabled}>
+                {step1Btn.label}
+                {!step1Btn.disabled && <Icon name="arrow" size={13} color="#fff" />}
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Haupt-Bereich: DocNav links | Step-Inhalt rechts ── */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+
+        {/* Persistente linke Spalte */}
+        <DocNav docs={docs} selectedId={selectedDocId} onSelect={setSelectedDocId} />
+
+        {/* Rechte Spalte: Step-Inhalt */}
+        <div style={{
+          flex: 1, minWidth: 0,
+          // Step 1 (Analyse): overflow hidden, da AnalysisStep selbst 2 scrollende Spalten hat
+          overflowY: step === 1 ? "hidden" : "auto",
+          padding: step === 1 ? 0 : "28px 32px 48px",
+          background: step === 1 ? colors.white : colors.bg,
+        }}>
+          {step === 0 && <UploadStep caseId={caseId} onNext={next} onCanNextChange={setUploadHasFiles} />}
+          {step === 1 && (
+            <AnalysisStep
+              caseId={caseId}
+              onNext={next}
+              onBack={back}
+              docs={docs}
+              selectedDoc={selectedDoc}
+              onActionChange={cfg => {
+                step1ActionRef.current = cfg.handler;
+                setStep1Btn({ label: cfg.label, disabled: cfg.disabled });
+              }}
+            />
+          )}
           {step === 2 && <TimelineStep caseId={caseId} onNext={next} onBack={back} />}
           {step === 3 && <CheckoutStep caseId={caseId} onBack={back} setPage={setPage} />}
         </div>
-
-        {/* Persistente Dokument-Seitenleiste (US-7.7) */}
-        <DocumentSidebar caseId={caseId} />
       </div>
     </div>
   );

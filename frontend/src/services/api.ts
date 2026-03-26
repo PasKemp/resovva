@@ -5,7 +5,7 @@
 // Browser den Cookie bei Cross-Origin-Requests (localhost:5173 → :8000) mitsendet.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { ApiCase, ExtractedData, TimelineEvent } from "../types";
+import type { ApiCase, ExtractedData, ExtractionResult, TimelineEvent } from "../types";
 
 export interface AnalysisResultResponse {
   status:          "analyzing" | "waiting_for_user" | "error";
@@ -126,6 +126,13 @@ export const casesApi = {
 
   delete: (caseId: string) =>
     apiFetch<{ status: string }>(`/api/v1/cases/${caseId}`, { method: "DELETE" }),
+
+  /** Aktualisiert Streitpartei-Kategorie und -Name (US-9.4). */
+  updateOpponent: (caseId: string, data: { opponent_category?: string; opponent_name?: string }) =>
+    apiFetch<{ status: string }>(`/api/v1/cases/${caseId}`, {
+      method: "PATCH",
+      body:   JSON.stringify(data),
+    }),
 };
 
 // ── Documents ─────────────────────────────────────────────────────────────────
@@ -172,11 +179,12 @@ export interface CaseStatusResponse {
 
 /** Einzelnes Dokument in der Dokumentenliste eines Falls. */
 export interface DocumentListItem {
-  document_id:   string;
-  filename:      string;
-  document_type: string;
-  ocr_status:    string;
-  created_at:    string;
+  document_id:          string;
+  filename:             string;
+  document_type:        string;
+  ocr_status:           string;
+  created_at:           string;
+  masked_text_preview?: string | null;
 }
 
 export interface DocumentsResponse {
@@ -243,6 +251,14 @@ export const analysisApi = {
       method: "PUT",
       body:   JSON.stringify(data),
     }),
+};
+
+// ── Extraction Result (Epic 9) ────────────────────────────────────────────────
+
+export const extractionApi = {
+  /** Lädt Felder mit Confidence-Scores (US-9.2). 404 wenn noch nicht fertig. */
+  getFields: (caseId: string) =>
+    apiFetch<ExtractionResult>(`/api/v1/cases/${caseId}/extraction-result`),
 };
 
 // ── Timeline ──────────────────────────────────────────────────────────────────
