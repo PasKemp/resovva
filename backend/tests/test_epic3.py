@@ -167,7 +167,7 @@ class TestNodeExtract:
         }
 
     @pytest.mark.asyncio
-    @patch("app.agents.nodes.extract.search_rag", return_value=["Zählernummer: Z1234\nMaLo: DE0123"])
+    @patch("app.agents.nodes.extract.search_rag_with_meta", return_value=[{"text": "Zählernummer: Z1234\nMaLo: DE0123", "document_id": "doc-1"}])
     @patch("app.agents.nodes.extract._get_mini_llm")
     async def test_successful_extraction(self, mock_llm_fn, mock_rag):
         from app.agents.nodes.extract import node_extract
@@ -201,7 +201,7 @@ class TestNodeExtract:
         assert result["current_step"] == "extract"
 
     @pytest.mark.asyncio
-    @patch("app.agents.nodes.extract.search_rag", return_value=[])
+    @patch("app.agents.nodes.extract.search_rag_with_meta", return_value=[])
     @patch("app.agents.nodes.extract._get_mini_llm")
     async def test_rag_empty_falls_back_to_messages(self, mock_llm_fn, mock_rag):
         from app.agents.nodes.extract import node_extract
@@ -220,7 +220,7 @@ class TestNodeExtract:
         assert result["current_step"] in ("extract", "extract_error")
 
     @pytest.mark.asyncio
-    @patch("app.agents.nodes.extract.search_rag", return_value=["some text"])
+    @patch("app.agents.nodes.extract.search_rag_with_meta", return_value=[{"text": "some text", "document_id": "doc-1"}])
     @patch("app.agents.nodes.extract._get_mini_llm", side_effect=ValueError("No API key"))
     async def test_llm_error_sets_extract_error_step(self, mock_llm, mock_rag):
         from app.agents.nodes.extract import node_extract
@@ -338,7 +338,7 @@ class TestPersistToDb:
         mock_ctx.return_value.__enter__ = MagicMock(return_value=db)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
-        _persist_to_db(self._state(), "Stadtwerke Berlin")
+        _persist_to_db(self._state(), "Stadtwerke Berlin", "Stadtwerke Berlin", 0.9)
 
         assert mock_case.status == "WAITING_FOR_USER"
         assert mock_case.extracted_data["network_operator"] == "Stadtwerke Berlin"
@@ -350,7 +350,7 @@ class TestPersistToDb:
 
         state = self._state(case_id="not-a-uuid")
         # sollte keinen Exception werfen
-        _persist_to_db(state, None)
+        _persist_to_db(state, None, None, 0.0)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

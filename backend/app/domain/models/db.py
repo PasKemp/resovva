@@ -179,6 +179,7 @@ class Document(Base):
         document_type: Klassifizierung (INVOICE, CONTRACT, etc.).
         ocr_status: Verarbeitungsstatus (pending|parsing|llama_parse_fallback|masking|completed|error).
         masked_text: PII-maskierter Klartext nach Extraktion (US-2.5, Epic 8).
+        ai_summary: KI-generierte Zusammenfassung (gpt-4o-mini, on-demand, gecacht).
         created_at: Upload-Zeitpunkt.
     """
 
@@ -195,6 +196,7 @@ class Document(Base):
     document_type: Mapped[str] = mapped_column(String(50), default="UNKNOWN")
     ocr_status: Mapped[str] = mapped_column(String(30), default="pending")
     masked_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ai_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     case: Mapped["Case"] = relationship("Case", back_populates="documents")
@@ -245,7 +247,7 @@ class ChronologyEvent(Base):
     case_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("cases.id", ondelete="CASCADE"), index=True
     )
-    event_date: Mapped[date] = mapped_column(Date, nullable=False)
+    event_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     source_doc_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
@@ -266,7 +268,7 @@ class ChronologyEvent(Base):
         return {
             "event_id": str(self.id),
             "case_id": str(self.case_id),
-            "event_date": self.event_date.isoformat(),
+            "event_date": self.event_date.isoformat() if self.event_date else None,
             "description": self.description,
             "source_doc_id": str(self.source_doc_id) if self.source_doc_id else None,
             "source_type": self.source_type,

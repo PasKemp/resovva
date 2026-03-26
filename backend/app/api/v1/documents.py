@@ -82,7 +82,24 @@ class DocumentDeleteResponse(BaseModel):
     message: str
 
 
+class SummaryResponse(BaseModel):
+    """Response für POST /cases/{case_id}/documents/{doc_id}/summarize."""
+
+    summary: Optional[str] = None
+
+
 # ── Private Hilfsfunktionen ───────────────────────────────────────────────────
+
+
+def _preview(text: Optional[str], max_chars: int) -> Optional[str]:
+    """Kürzt Text auf max_chars, bricht am letzten Leerzeichen ab (kein Mid-Word-Cut)."""
+    if not text:
+        return None
+    if len(text) <= max_chars:
+        return text
+    cut = text[:max_chars]
+    last_space = cut.rfind(" ")
+    return cut[:last_space] if last_space > max_chars // 2 else cut
 
 
 def _detect_mime(header: bytes) -> Optional[tuple[str, str]]:
@@ -214,11 +231,72 @@ def list_documents(
                 document_type=d.document_type,
                 ocr_status=d.ocr_status,
                 created_at=d.created_at.isoformat(),
-                masked_text_preview=d.masked_text[:500] if d.masked_text else None,
+                masked_text_preview=_preview(d.masked_text, 2500),
             )
             for d in case.documents
         ]
     )
+
+
+# ── POST /cases/{case_id}/documents/{document_id}/summarize ──────────────────
+
+
+@router.post(
+    "/{case_id}/documents/{document_id}/summarize",
+    response_model=SummaryResponse,
+)
+async def summarize_document(
+    case_id: str,
+    document_id: str,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+) -> SummaryResponse:
+    """
+    Erstellt eine KI-Zusammenfassung für ein Dokument (gpt-4o-mini).
+
+    Gibt { summary: null } zurück wenn der Text zu kurz ist oder ein Fehler auftritt.
+    """
+    from app.agents.nodes.extract import _get_mini_llm
+
+    case = get_owned_case(case_id, current_user, db)
+
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Dokument nicht gefunden.")
+
+    doc = db.query(Document).filter(
+        Document.id == doc_uuid,
+        Document.case_id == case.id,
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Dokument nicht gefunden.")
+
+    # Cache-Hit: bereits gespeichert → kein LLM-Aufruf
+    if doc.ai_summary:
+        return SummaryResponse(summary=doc.ai_summary)
+
+    if not doc.masked_text or len(doc.masked_text) < 300:
+        return SummaryResponse(summary=None)
+
+    try:
+        llm = _get_mini_llm()
+        prompt = (
+            "Du analysierst ein deutsches Rechtsdokument. "
+            "Erstelle eine prägnante Zusammenfassung in 3–5 Stichpunkten. "
+            "Fokus auf: Dokumenttyp, beteiligte Parteien, wichtige Daten und Beträge, Kernaussage. "
+            "Antworte auf Deutsch. Jeder Punkt beginnt mit '- '.\n\n"
+            f"Dateiname: {doc.filename}\n\n"
+            f"Text:\n{doc.masked_text[:3000]}"
+        )
+        result = await llm.ainvoke(prompt)
+        summary_text = result.content.strip()
+        doc.ai_summary = summary_text
+        db.commit()
+        return SummaryResponse(summary=summary_text)
+    except Exception:
+        logger.warning("summarize_document: LLM-Fehler für Dokument %s.", document_id)
+        return SummaryResponse(summary=None)
 
 
 # ── DELETE /cases/{case_id}/documents/{document_id} ──────────────────────────

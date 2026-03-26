@@ -338,6 +338,9 @@ async def _run_analysis_background(case_id: str) -> None:
         "missing_info": [],
         "dossier_ready": False,
         "payment_status": "pending",
+        # Epic 4 – Map-Reduce Timeline
+        "events_per_doc": {},
+        "new_document_id": None,
     }
     try:
         agent_app = await get_agent_app()
@@ -409,25 +412,25 @@ def get_analysis_result(
 # ── PUT /cases/{case_id}/analysis/confirm ─────────────────────────────────────
 
 
-@router.put("/{case_id}/analysis/confirm", response_model=ConfirmAnalysisResponse)
+@router.put("/{case_id}/analysis/confirm", status_code=202, response_model=ConfirmAnalysisResponse)
 async def confirm_analysis(
     case_id: str,
     payload: ConfirmAnalysisRequest,
     current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> ConfirmAnalysisResponse:
     """
     Bestätigt die extrahierten Daten (Human-in-the-Loop, US-3.5).
 
-    Aktualisiert den LangGraph-State mit den vom Nutzer bestätigten Daten
-    und setzt die Graph-Ausführung fort (→ _node_confirm).
+    Setzt status sofort auf BUILDING_TIMELINE (Race-Guard: doppelte Anfragen
+    bekommen 409) und startet den Graph-Resume als Background-Task.
+    Das Frontend pollt weiterhin GET /timeline bis status='ready'.
 
     Raises:
         HTTPException 404: Fall nicht gefunden.
-        HTTPException 409: Analyse noch nicht bereit für Bestätigung.
+        HTTPException 409: Fall nicht in WAITING_FOR_USER (inkl. Race-Guard).
     """
-    from app.agents.graph import get_agent_app
-
     case = get_owned_case(case_id, current_user, db)
 
     if case.status != "WAITING_FOR_USER":
@@ -436,7 +439,11 @@ async def confirm_analysis(
             detail="Fall ist nicht im Status WAITING_FOR_USER.",
         )
 
-    config = {"configurable": {"thread_id": case_id}}
+    # Race-Guard: sofort auf BUILDING_TIMELINE setzen, damit gleichzeitige
+    # Anfragen (Mehrfachklick) den 409-Zweig treffen.
+    case.status = "BUILDING_TIMELINE"
+    db.commit()
+
     confirmed_update = {
         "meter_number": payload.meter_number,
         "malo_id": payload.malo_id,
@@ -445,17 +452,31 @@ async def confirm_analysis(
         "opponent_category": payload.opponent_category,
         "opponent_name": payload.opponent_name,
     }
+
+    background_tasks.add_task(_resume_graph_background, case_id, confirmed_update)
+
+    logger.info("Case %s: Analyse bestätigt – Timeline-Aufbau gestartet.", case_id)
+    return ConfirmAnalysisResponse(status="confirmed", next_step="timeline")
+
+
+async def _resume_graph_background(case_id: str, confirmed_update: dict) -> None:
+    """Setzt den LangGraph-Lauf nach HiTL-Bestätigung fort (confirm → extract_events → build_master_timeline)."""
+    import traceback
+
+    from app.agents.graph import get_agent_app
+
+    config = {"configurable": {"thread_id": case_id}}
     try:
         agent_app = await get_agent_app()
         await agent_app.aupdate_state(config, confirmed_update)
         await agent_app.ainvoke(None, config=config)
+        logger.info("Graph-Resume abgeschlossen (Case %s).", case_id)
     except Exception as exc:
-        logger.error("Graph-Resume fehlgeschlagen (Case %s): %s", case_id, exc)
-        raise HTTPException(status_code=500, detail="Bestätigung fehlgeschlagen.")
-
-    logger.info("Case %s: Analyse bestätigt (MaLo=%s, Zähler=%s).", case_id, payload.malo_id, payload.meter_number)
-
-    return ConfirmAnalysisResponse(status="confirmed", next_step="timeline")
+        logger.error(
+            "Graph-Resume fehlgeschlagen (Case %s): %r\n%s",
+            case_id, exc, traceback.format_exc(),
+        )
+        _set_case_error(case_id)
 
 
 # ── GET /cases/{case_id}/status ───────────────────────────────────────────────

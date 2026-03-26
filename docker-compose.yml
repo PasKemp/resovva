@@ -10,6 +10,12 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U resovva -d resovva"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   minio:
     image: minio/minio
@@ -35,6 +41,8 @@ services:
       context: ./backend
       target: dev
     command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+    env_file:
+      - ./backend/.env
     environment:
       PYTHONPATH: /app
       DATABASE_URL: postgresql://resovva:password@postgres:5432/resovva
@@ -46,14 +54,21 @@ services:
       S3_ACCESS_KEY: minioadmin
       S3_SECRET_KEY: minioadmin
       S3_BUCKET_NAME: resovva-docs
+      # Stripe (Epic 5) – leer lassen für Dev-Modus (kein Stripe-Redirect)
+      # STRIPE_SECRET_KEY: sk_test_...
+      # STRIPE_WEBHOOK_SECRET: whsec_...
+      # STRIPE_PRICE_ID: price_...
     volumes:
       - ./backend/app:/app/app
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
-      - minio
-      - qdrant
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      qdrant:
+        condition: service_started
 
   frontend:
     build:

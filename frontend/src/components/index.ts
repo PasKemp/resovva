@@ -6,6 +6,7 @@ export { Nav }                  from "./Nav";
 export { MaskingPreview }       from "./MaskingPreview";
 export { AnalysisSplitView }    from "./AnalysisSplitView";
 export { OpponentConfirmation } from "./OpponentConfirmation";
+export { AddEventModal }        from "./AddEventModal";
 
 export type { ButtonVariant, ButtonSize, ButtonProps } from "./Button";
 export type { BadgeColor, BadgeProps }                 from "./Badge";

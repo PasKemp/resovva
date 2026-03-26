@@ -40,9 +40,9 @@ Resovva führt Nutzer durch Streitigkeiten mit Stromanbietern und Netzbetreibern
 |---|---|---|
 | **Epic 1** | Auth, Sessions, Multi-Case-Dashboard, DSGVO Hard-Delete | ✅ Vollständig |
 | **Epic 2** | Dokument-Upload, OCR, PII-Masking, QR-Code-Upload | ✅ Vollständig |
-| **Epic 3** | LangGraph-Agent, RAG, Entitäten-Extraktion, MaStR-Lookup, HiTL | ✅ Vollständig (US-3.3 Frontend partiell) |
-| **Epic 4** | Gap-Analysis, Nutzer-Feedback-Loop | 📋 Backlog |
-| **Epic 5** | Stripe-Zahlung (Pay-per-Case) | 📋 Backlog |
+| **Epic 3** | LangGraph-Agent, RAG, Entitäten-Extraktion, MaStR-Lookup, HiTL | ✅ Vollständig |
+| **Epic 4** | Chronologie-Aufbau, Gap-Analysis, Nutzer-Feedback-Loop | ✅ Vollständig |
+| **Epic 5** | Stripe-Zahlung (Pay-per-Case), Paywall-UI, Retry-Flow | ✅ Vollständig |
 | **Epic 6** | PDF-Dossier-Generierung | 📋 Backlog |
 
 ---
@@ -166,6 +166,10 @@ pytest tests/test_auth.py::test_login_success -v
 | `test_security.py` | `hash_password`, JWT, Reset-Token, PII-Masking | 25 |
 | `test_auth.py` | Register, Login, Logout, `/me`, Passwort-Reset | 25 |
 | `test_cases.py` | Dashboard, Tenant-Isolation, DSGVO Hard-Delete | 15 |
+| `test_case_flow.py` | Upload, Analyse, HiTL-Bestätigung, Chronologie-Flow | ~30 |
+| `test_epic3.py` | RAG, Extraktion, MaStR-Lookup, Graph-Resume | ~20 |
+| `test_epic4.py` | Event-Extraktion, Master-Chronologie, manuell, Refresh | ~25 |
+| `test_epic5.py` | Checkout, Webhook, Retry, Stripe-Mock | 17 |
 | `test_api.py` | Health-Check | 1 |
 
 Ohne laufendes PostgreSQL werden DB-Tests automatisch übersprungen (`SKIPPED`), Security-Unit-Tests laufen weiterhin durch.

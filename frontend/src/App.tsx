@@ -35,10 +35,11 @@ export default function App() {
     }
   };
 
-  // Navigiert zum CaseFlow – mit bestehender ID (öffnen) oder ohne (neu anlegen)
-  const openCase = (caseId?: string) => {
-    // Neuer oder anderer Fall → Step zurücksetzen; selber Fall → Step beibehalten
-    if (caseId !== activeCaseId) setActiveCaseStep(0);
+  // Navigiert zum CaseFlow – mit bestehender ID (öffnen) oder ohne (neu anlegen).
+  // step: optionaler Einstiegs-Step (z.B. 3 für Checkout-Retry bei PAYMENT_PENDING).
+  const openCase = (caseId?: string, step?: number) => {
+    // Neuer oder anderer Fall → Step zurücksetzen (oder auf übergebenem Step starten)
+    if (caseId !== activeCaseId) setActiveCaseStep(step ?? 0);
     setActiveCaseId(caseId);
     setPage("case");
   };

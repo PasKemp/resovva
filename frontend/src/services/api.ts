@@ -5,7 +5,7 @@
 // Browser den Cookie bei Cross-Origin-Requests (localhost:5173 → :8000) mitsendet.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { ApiCase, ExtractedData, ExtractionResult, TimelineEvent } from "../types";
+import type { ApiCase, ExtractedData, ExtractionResult, TimelineEvent, TimelineResponse } from "../types";
 
 export interface AnalysisResultResponse {
   status:          "analyzing" | "waiting_for_user" | "error";
@@ -160,6 +160,12 @@ export const documentsApi = {
 
   delete: (caseId: string, fileId: string) =>
     apiFetch<void>(`/api/v1/cases/${caseId}/documents/${fileId}`, { method: "DELETE" }),
+
+  summarize: (caseId: string, documentId: string) =>
+    apiFetch<{ summary: string | null }>(
+      `/api/v1/cases/${caseId}/documents/${documentId}/summarize`,
+      { method: "POST" },
+    ),
 };
 
 // ── Mobile Upload ─────────────────────────────────────────────────────────────
@@ -261,17 +267,39 @@ export const extractionApi = {
     apiFetch<ExtractionResult>(`/api/v1/cases/${caseId}/extraction-result`),
 };
 
-// ── Timeline ──────────────────────────────────────────────────────────────────
+// ── Timeline (Epic 4) ─────────────────────────────────────────────────────────
 
 export const timelineApi = {
+  /** Lädt Timeline. status='building'|'ready'|'empty'. */
   get: (caseId: string) =>
-    apiFetch<{ timeline: TimelineEvent[] }>(`/api/v1/cases/${caseId}/timeline`),
+    apiFetch<TimelineResponse>(`/api/v1/cases/${caseId}/timeline`),
 
-  addEvent: (caseId: string, event: Omit<TimelineEvent, "id">) =>
+  /** Fügt manuelles Ereignis hinzu (US-4.4). event_date: "YYYY-MM-DD". */
+  addEvent: (caseId: string, payload: { event_date: string; description: string }) =>
     apiFetch<TimelineEvent>(`/api/v1/cases/${caseId}/timeline`, {
       method: "POST",
-      body:   JSON.stringify(event),
+      body:   JSON.stringify(payload),
     }),
+
+  /** Bearbeitet ein Ereignis (US-4.3). */
+  updateEvent: (caseId: string, eventId: string, payload: { event_date?: string; description?: string }) =>
+    apiFetch<TimelineEvent>(`/api/v1/cases/${caseId}/timeline/${eventId}`, {
+      method: "PATCH",
+      body:   JSON.stringify(payload),
+    }),
+
+  /** Löscht ein Ereignis oder ignoriert eine Lücke (US-4.3). */
+  deleteEvent: (caseId: string, eventId: string) =>
+    apiFetch<void>(`/api/v1/cases/${caseId}/timeline/${eventId}`, {
+      method: "DELETE",
+    }),
+
+  /** Startet inkrementelles Update nach Upload eines neuen Dokuments (US-4.5). */
+  refresh: (caseId: string, documentId: string) =>
+    apiFetch<{ status: string; message: string }>(
+      `/api/v1/cases/${caseId}/timeline/refresh?document_id=${documentId}`,
+      { method: "POST" },
+    ),
 };
 
 // ── Dossier ───────────────────────────────────────────────────────────────────

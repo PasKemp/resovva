@@ -336,7 +336,7 @@ export const CaseFlow = ({
               }}
             />
           )}
-          {step === 2 && <TimelineStep caseId={caseId} onNext={next} onBack={back} />}
+          {step === 2 && <TimelineStep caseId={caseId} onNext={next} onBack={back} onGoToUpload={() => setStep(0)} />}
           {step === 3 && <CheckoutStep caseId={caseId} onBack={back} setPage={setPage} />}
         </div>
       </div>

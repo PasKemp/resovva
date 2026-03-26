@@ -822,7 +822,7 @@ class TestHardDeleteCase:
 class TestEndToEndLifecycle:
 
     @patch("app.api.v1.documents.get_storage")
-    @patch("app.workers.ocr_worker.run_ocr")
+    @patch("app.api.v1.documents.run_ocr")
     def test_full_case_creation_to_deletion(self, mock_ocr, mock_storage_factory, auth_client, db):
         """
         Vollständiger Lebenszyklus eines Falls:

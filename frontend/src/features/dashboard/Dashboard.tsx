@@ -6,7 +6,7 @@ import { mapApiCase } from "../../types";
 import type { Case, CaseStatus, WithSetPage } from "../../types";
 
 interface DashboardProps extends WithSetPage {
-  openCase: (caseId?: string) => void;
+  openCase: (caseId?: string, step?: number) => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -14,16 +14,23 @@ interface DashboardProps extends WithSetPage {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const STATUS_COLOR: Record<CaseStatus, "orange" | "yellow" | "teal"> = {
-  Entwurf:              "orange",
-  "Wartet auf Zahlung": "yellow",
-  Abgeschlossen:        "teal",
+  Entwurf:                "orange",
+  "Wartet auf Zahlung":   "yellow",
+  "Zahlung ausstehend":   "yellow",
+  Abgeschlossen:          "teal",
 };
 
-// CTA je Status (US-7.5)
+// CTA je Status (US-7.5 + US-5.4)
 const STATUS_CTA: Record<CaseStatus, string> = {
-  Entwurf:              "Weiter zur Analyse",
-  "Wartet auf Zahlung": "Daten bestätigen",
-  Abgeschlossen:        "Dossier herunterladen",
+  Entwurf:                "Weiter zur Analyse",
+  "Wartet auf Zahlung":   "Daten bestätigen",
+  "Zahlung ausstehend":   "Zahlung abschließen",
+  Abgeschlossen:          "Dossier herunterladen",
+};
+
+// Checkout-Schritt für PAYMENT_PENDING-Retry (US-5.4)
+const STATUS_STEP: Partial<Record<CaseStatus, number>> = {
+  "Zahlung ausstehend": 3,
 };
 
 // ── Delete-Confirm-Modal ─────────────────────────────────────────────────────
@@ -158,7 +165,7 @@ const CasePreview = ({
   onDelete,
 }: {
   c:        Case;
-  onOpen:   () => void;
+  onOpen:   (step?: number) => void;
   onDelete: () => void;
 }) => (
   <Card style={{ marginBottom: 24 }}>
@@ -209,14 +216,14 @@ const CasePreview = ({
           {STATUS_CTA[c.status]}
         </p>
       </div>
-      <Button size="sm" onClick={onOpen}>
+      <Button size="sm" onClick={() => onOpen(STATUS_STEP[c.status])}>
         {STATUS_CTA[c.status]} <Icon name="arrow" size={13} color="#fff" />
       </Button>
     </div>
 
     {/* Aktionen */}
     <div style={{ display: "flex", gap: 10 }}>
-      <Button variant="outline" size="sm" onClick={onOpen}>
+      <Button variant="outline" size="sm" onClick={() => onOpen()}>
         <Icon name="file" size={13} color={colors.mid} /> Fall öffnen
       </Button>
       <button
@@ -293,6 +300,19 @@ export const Dashboard = ({ openCase }: DashboardProps) => {
   // US-7.6 Bug-Fix: deleteTarget speichert die vollständige UUID (apiId), nicht die kurze ID
   const [deleteTarget,  setDeleteTarget]  = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  // US-5.4: Toast bei Rückkehr von abgebrochener Stripe-Session
+  const [paymentToast,  setPaymentToast]  = useState<"cancelled" | null>(null);
+
+  // US-5.4: ?payment=cancelled Query-Param auswerten (nach Stripe-Redirect)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("payment") === "cancelled") {
+      setPaymentToast("cancelled");
+      window.history.replaceState({}, "", window.location.pathname);
+      const t = setTimeout(() => setPaymentToast(null), 6000);
+      return () => clearTimeout(t);
+    }
+  }, []);
 
   useEffect(() => {
     casesApi.list()
@@ -308,8 +328,8 @@ export const Dashboard = ({ openCase }: DashboardProps) => {
   // Neuer Fall: kein caseId übergeben → CaseFlow legt selbst an
   const handleNewCase = () => openCase(undefined);
 
-  // Bestehenden Fall öffnen: caseId übergeben → CaseFlow erstellt keinen neuen
-  const handleOpenCase = (apiId: string) => openCase(apiId);
+  // Bestehenden Fall öffnen: step=3 für Checkout-Retry bei PAYMENT_PENDING (US-5.4)
+  const handleOpenCase = (apiId: string, step?: number) => openCase(apiId, step);
 
   const handleDeleteRequest = (apiId: string) => {
     setDeleteTarget(apiId);
@@ -341,6 +361,38 @@ export const Dashboard = ({ openCase }: DashboardProps) => {
 
   return (
     <>
+      {/* US-5.4: Toast – Zahlung abgebrochen */}
+      {paymentToast === "cancelled" && (
+        <div style={{
+          position:     "fixed",
+          top:          80,
+          left:         "50%",
+          transform:    "translateX(-50%)",
+          zIndex:       2000,
+          background:   colors.white,
+          border:       `1px solid ${colors.dangerBorder}`,
+          borderRadius: 10,
+          padding:      "12px 20px",
+          boxShadow:    "0 8px 32px rgba(0,0,0,.12)",
+          display:      "flex",
+          alignItems:   "center",
+          gap:          10,
+          fontFamily:   typography.sans,
+          fontSize:     13,
+          color:        colors.danger,
+          whiteSpace:   "nowrap",
+        }}>
+          <Icon name="x" size={14} color={colors.danger} />
+          Zahlung wurde abgebrochen. Du kannst es jederzeit erneut versuchen.
+          <button
+            onClick={() => setPaymentToast(null)}
+            style={{ background: "none", border: "none", cursor: "pointer", color: colors.muted, fontSize: 16, lineHeight: 1, padding: 0, marginLeft: 4 }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {deleteTarget && (
         <DeleteModal
           onConfirm={handleDeleteConfirm}
@@ -376,7 +428,7 @@ export const Dashboard = ({ openCase }: DashboardProps) => {
           {selectedCase ? (
             <CasePreview
               c={selectedCase}
-              onOpen={() => handleOpenCase(selectedCase.apiId)}
+              onOpen={(step) => handleOpenCase(selectedCase.apiId, step)}
               onDelete={() => handleDeleteRequest(selectedCase.apiId)}
             />
           ) : (

@@ -121,7 +121,9 @@ export const CheckoutStep: React.FC<CheckoutStepProps> = ({ caseId, onBack: _onB
                 style={{ marginTop: 3, accentColor: colors.orange, width: 14, height: 14, flexShrink: 0 }}
               />
               <span style={{ fontSize: 11, color: colors.muted, fontFamily: typography.sans, lineHeight: 1.5 }}>
-                Ich habe das Widerrufsrecht gelesen und akzeptiere die Bedingungen.
+                Ich verlange ausdrücklich, dass mit der Ausführung des Vertrags vor Ablauf der
+                Widerrufsfrist begonnen wird. Mir ist bekannt, dass ich mit vollständiger
+                Vertragserfüllung mein Widerrufsrecht verliere.
               </span>
             </label>
 

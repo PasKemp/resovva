@@ -18,7 +18,7 @@ COPY pyproject.toml ./
 COPY app/ ./app/
 
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir ".[dev,postgres]"
+    && pip install --no-cache-dir ".[dev,postgres,llamaparse]"
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
@@ -39,7 +39,7 @@ COPY pyproject.toml ./
 COPY app/ ./app/
 
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir ".[postgres]"
+    && pip install --no-cache-dir ".[postgres,llamaparse]"
 
 # ── Stage 3: Runtime (minimal, non-root) ─────────────────────────────────────
 FROM python:3.12-slim AS runtime

@@ -14,6 +14,8 @@ class ChronologyEvent(TypedDict):
     date: str
     description: str
     source_doc_id: str
+    source_type: str  # 'ai' | 'user'
+    is_gap: bool
 
 
 class ResovvaState(TypedDict):
@@ -51,4 +53,9 @@ class ResovvaState(TypedDict):
 class AgentState(ResovvaState, total=False):
     """ResovvaState + optionaler Schritt-Tracker für LangGraph-Nodes."""
 
-    current_step: str  # load_docs | detect_opponent | extract | mastr_lookup | confirm | …
+    current_step: str  # load_docs | detect_opponent | extract | mastr_lookup | confirm | extract_events | build_master_timeline
+
+    # Epic 4 – Map-Phase-Zwischenergebnis: { doc_id: [ChronologyEvent, ...] }
+    events_per_doc: Dict[str, list]
+    # Epic 4 – US-4.5: Inkrementelles Update für ein einzelnes neues Dokument
+    new_document_id: Optional[str]

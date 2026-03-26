@@ -4,13 +4,78 @@ Stand: 2026-03-26
 
 ---
 
-## Gesamtstatus: EPIC 1 ✅ · EPIC 2 ✅ · EPIC 3 ✅ (US-3.3 Frontend partiell)
+## Gesamtstatus: EPIC 1 ✅ · EPIC 2 ✅ · EPIC 3 ✅ · EPIC 4 ✅ · EPIC 5 ✅
 
 ---
 
+## EPIC 5: Checkout & Monetization (Die Paywall) ✅
+
+### US-5.1: Stripe Checkout Session ✅
+
+- `api/v1/checkout.py` → `POST /cases/{case_id}/checkout`
+- Dev-Modus (kein `STRIPE_SECRET_KEY`): Fall direkt auf `PAID`, `checkout_url = ""`
+- Prod-Modus: `stripe.checkout.Session.create()` mit `allow_promotion_codes=True`, `client_reference_id=user_id`, `metadata={case_id}`
+- `cancel_url` → `/dashboard?payment=cancelled&case_id={id}`, `success_url` → `/dashboard?payment=success`
+- Fall-Status → `PAYMENT_PENDING`, `stripe_session_id` in DB persistiert
+
+### US-5.2: Webhook-Handler ✅
+
+- `POST /api/v1/webhooks/stripe`: Signaturprüfung via `stripe.Webhook.construct_event()` (→ 400 bei Fehler)
+- `checkout.session.completed` → Fall-Status auf `PAID`; Idempotenz: bereits `PAID` wird übersprungen
+- Bonus: `payment_intent` in `case.extracted_data["stripe_payment_intent"]` persistiert (Buchhaltungs-Trail)
+
+### US-5.3: Paywall UI ✅
+
+- `features/case/steps/CheckoutStep.tsx`: Leistungsübersicht, Preis-Box (20,00 €), gesetzlich vorgeschriebener Widerrufs-Verzicht-Text
+- Checkbox **nicht** vorausgefüllt; Button deaktiviert bis Zustimmung erteilt
+
+### US-5.4: Abgebrochene Zahlungen & Retry ✅
+
+- `Dashboard.tsx`: `STATUS_CTA["Zahlung ausstehend"] = "Zahlung abschließen"`, `STATUS_STEP[...] = 3` → CaseFlow öffnet direkt auf Checkout-Step
+- `paymentToast` via `useEffect` liest `?payment=cancelled` aus URL, zeigt 6s-Toast, bereinigt URL via `window.history.replaceState`
+- `App.tsx` → `openCase(caseId?, step?)` trägt optionalen `step` weiter
+- `types/index.ts`: `PAYMENT_PENDING` in `CaseStatusApi` + `STATUS_MAP`
+
+### US-5.5: Automatisierte Rechnungsstellung ✅ (Konfiguration)
+
+- Kein Code – reine Stripe-Dashboard-Konfiguration: Steuer-Setup (19 % MwSt.), Rechnungsmail-Template, Stripe Branding
+
 ---
 
-## EPIC 3: AI Analysis & Extraction Engine ✅ (US-3.3 Frontend partiell)
+## EPIC 4: "Der Rote Faden" – Chronologie & Gap-Analysis ✅
+
+### US-4.1: Event-Extraktion pro Dokument (Map-Phase) ✅
+
+- `agents/nodes/extract_events.py` → `node_extract_events()`: `gpt-4o-mini` mit `ChronologyEventExtracted` Pydantic-Modell
+- Parallele Verarbeitung via `asyncio.gather()`, max. 6000 Zeichen pro Dokument
+- Erkennt Dokumentdatum + referenzierte Daten (z. B. „am 12.04. besprochen")
+- Fall-Status → `BUILDING_TIMELINE`, Ergebnisse in `state["events_per_doc"]`
+
+### US-4.2: Master-Chronologie & Gap-Analysis (Reduce-Phase) ✅
+
+- `agents/nodes/build_master_timeline.py` → `node_build_master_timeline()`: `gpt-4o` für Reduce
+- Deduplizierung, Gap-Erkennung (max. 5 Gaps), Schutz von `source_type='user'`-Ereignissen
+- Fall-Status → `TIMELINE_READY`; Persistierung in DB via `_persist_timeline()`
+
+### US-4.3: UI – Interaktiver "Roter Faden" ✅
+
+- `api/v1/timeline.py`: `GET`, `PATCH`, `DELETE /cases/{case_id}/timeline/{event_id}`
+- `features/case/steps/TimelineStep.tsx`: Polling (2 s), `TimelineRow` mit 3-Punkte-Menü (Bearbeiten/Löschen), `GapRow` gelb hinterlegt mit „Nachreichen"-Button
+- Source-Badges: „KI-Extraktion" (blau) vs. „Eigene Angabe" (lila)
+
+### US-4.4: Manuelle Ereignisse hinzufügen ✅
+
+- `POST /cases/{case_id}/timeline`: `source_type='user'`, Datum-Validierung (kein Zukunftsdatum)
+- `components/AddEventModal.tsx`: Datums-Picker (max=heute), Beschreibungs-Textarea (500 Zeichen), Auto-Sortierung
+
+### US-4.5: Die "Zurück-Schleife" (Iterativer Upload) ✅
+
+- `agents/nodes/incremental_update.py` → `run_incremental_update(case_id, doc_id)`: neues Dokument extrahieren → KI-Ereignisse löschen → Merge via `gpt-4o` mit `[USER]`-Markierung
+- `POST /cases/{case_id}/timeline/refresh?document_id={id}`: setzt `BUILDING_TIMELINE`, startet `BackgroundTask`, antwortet mit 202
+
+---
+
+## EPIC 3: AI Analysis & Extraction Engine ✅
 
 ### US-3.1: RAG Foundation ✅
 
@@ -23,11 +88,11 @@ Stand: 2026-03-26
 - Confidence-Scoring: Regex-Match 1.0 · LLM-only 0.6 · fehlend 0.0
 - Source-Tracking: `source_document_id` + `source_text_snippet` pro Feld
 
-### US-3.3: Early Exit & Missing Data UI ⚠️ Backend ✅ · Frontend partiell
+### US-3.3: Early Exit & Missing Data UI ✅
 
 - `agents/graph.py`: Conditional Edge `should_request_more_data()` — wenn `meter_number IS NULL AND malo_id IS NULL` → Pause
 - Case-Status → `WAITING_FOR_USER`; LangGraph-Interrupt vor `confirm`-Node
-- **Frontend-Lücke:** Spezifische "Wir konnten keine Zählernummer finden."-Meldung + "Weiteres Dokument hochladen"-Button fehlen; die bestehende `review`-Phase deckt manuelle Korrektur ab
+- Frontend: `AnalysisStep` zeigt im Review-Zustand bei fehlenden Schlüsselfeldern Warnbox mit **„Weiteres Dokument hochladen"**-Button (US-3.3 vollständig)
 
 ### US-3.4: MaStR-API Lookup & AI Fallback ✅
 
@@ -51,6 +116,14 @@ Stand: 2026-03-26
 ---
 
 ## EPIC 2: Dokument-Upload & OCR ✅
+
+### US-2.6: Masking Preview & Vertrauensaufbau ✅
+
+- `features/case/steps/AnalysisStep.tsx` `DocContent`: Masking-Tokens (`***IBAN***`, `***@***.***`) werden in `__MASK_IBAN__` / `__MASK_EMAIL__`-Platzhalter umgewandelt
+- Benutzerdefinierter `code`-Renderer in `MD_COMPONENTS` erkennt Platzhalter und rendert grün hinterlegte `<span>`-Elemente mit Tooltip „Zu deiner Sicherheit vor der KI verborgen"
+- Bestehende Datenschutz-Hinweisbox + grünes Highlighting erfüllen US-2.6 vollständig
+
+### Weitere US-2.x ✅
 
 - S3/MinIO-Upload (10 MB-Limit, MIME-Validierung), Async-OCR-Pipeline
 - PII-Masking (IBAN, E-Mail) vor LLM-Übergabe (`core/security.py`)
@@ -107,119 +180,27 @@ Stand: 2026-03-26
 
 ---
 
-## Neue Dateien (EPIC 1)
+## Neue Dateien (EPIC 4 & 5)
 
-| Datei                                            | Inhalt                        |
-| ------------------------------------------------ | ----------------------------- |
-| `backend/app/api/v1/auth.py`                     | Vollständiger Auth-Router     |
-| `backend/app/api/v1/cases.py`                    | Cases CRUD + Hard-Delete      |
-| `backend/app/infrastructure/database.py`         | SQLAlchemy Session Factory    |
-| `backend/app/core/limiter.py`                    | slowapi Singleton             |
-| `backend/alembic/env.py`                         | Alembic Migration-Environment |
-| `backend/alembic/versions/001_initial_schema.py` | Initiale DB-Migration         |
-| `backend/alembic.ini`                            | Alembic-Konfiguration         |
-
-## Geänderte Dateien (EPIC 1)
-
-| Datei                                           | Änderungen                                                                    |
-| ----------------------------------------------- | ----------------------------------------------------------------------------- |
-| `backend/app/main.py`                           | Auth/Cases Router, CORS, Rate Limiter                                         |
-| `backend/app/core/security.py`                  | hash_password, verify_password, JWT-Funktionen                                |
-| `backend/app/core/config.py`                    | DATABASE_URL, SECRET_KEY, JWT_EXPIRE_DAYS, ALLOWED_ORIGINS, RESEND            |
-| `backend/app/api/dependencies.py`               | Vollständige get_current_user Implementierung                                 |
-| `backend/app/domain/models/db.py`               | PasswordResetToken Tabelle                                                    |
-| `backend/pyproject.toml`                        | Neue Abhängigkeiten                                                           |
-| `backend/.env.example`                          | Alle neuen Env-Variablen                                                      |
-| `frontend/src/types/index.ts`                   | ApiCase, mapApiCase, erweiterte CaseStatus                                    |
-| `frontend/src/services/api.ts`                  | credentials: "include", echte Auth-Types, logout/forgotPassword/resetPassword |
-| `frontend/src/features/auth/Login.tsx`          | Echte API-Calls, Passwort-Bestätigung, Forgot-Password-Tab                    |
-| `frontend/src/features/dashboard/Dashboard.tsx` | Echte Cases via API, Delete-Modal, Logout                                     |
+| Datei                                                    | Inhalt                                       |
+| -------------------------------------------------------- | -------------------------------------------- |
+| `backend/app/agents/nodes/extract_events.py`             | Event-Extraktion pro Dokument (Map-Phase)    |
+| `backend/app/agents/nodes/build_master_timeline.py`      | Master-Chronologie & Gap-Analysis            |
+| `backend/app/agents/nodes/incremental_update.py`         | Iterativer Upload / Merge-Logik              |
+| `backend/app/api/v1/timeline.py`                         | Timeline CRUD + Refresh-Endpoint             |
+| `backend/app/api/v1/checkout.py`                         | Stripe Checkout + Webhook                    |
+| `backend/tests/test_epic4.py`                            | Tests für EPIC 4 (Chronologie)               |
+| `backend/tests/test_epic5.py`                            | Tests für EPIC 5 (Checkout & Monetization)   |
+| `frontend/src/features/case/steps/TimelineStep.tsx`      | Timeline-UI mit Polling, Edit/Delete, Gaps   |
+| `frontend/src/components/AddEventModal.tsx`              | Modal für manuelle Ereignisse                |
 
 ---
 
-## Nächste Migrations-Schritte
+## Nächste sinnvolle Schritte (nach Priorität)
 
-```bash
-# Einmalig nach dem Start (im backend/ Verzeichnis):
-cd backend
-alembic upgrade head
-```
-
----
-
-## Backend – Gesamtstatus
-
-### Vollständig implementiert
-
-| Modul                                          | Beschreibung                                              |
-| ---------------------------------------------- | --------------------------------------------------------- |
-| `main.py`                                      | FastAPI App, Router, CORS, Rate Limiter                   |
-| `core/config.py`                               | Pydantic Settings, alle Konfigurationsfelder              |
-| `core/security.py`                             | PII-Maskierung + bcrypt + JWT                             |
-| `core/limiter.py`                              | Rate-Limiter-Singleton                                    |
-| `domain/models/db.py`                          | User, Case, Document, ChronologyEvent, PasswordResetToken |
-| `domain/models/document.py`                    | ExtractedEntity, DocumentInput                            |
-| `domain/models/case.py`                        | CaseStatus, CaseState                                     |
-| `domain/models/timeline.py`                    | ChronologyItem                                            |
-| `domain/services/document_ingest.py`           | Multi-Backend PDF-Parsing                                 |
-| `domain/services/pdf_parsing.py`               | Async-Wrapper                                             |
-| `infrastructure/azure_openai.py`               | LLM Factory                                               |
-| `infrastructure/checkpointer.py`               | PostgresSaver / MemorySaver                               |
-| `infrastructure/database.py`                   | SQLAlchemy Session Factory                                |
-| `api/dependencies.py`                          | get_current_user, CurrentUser                             |
-| `api/v1/auth.py`                               | Register, Login, Logout, ForgotPassword, ResetPassword    |
-| `api/v1/cases.py`                              | GET/POST /cases, DELETE /cases/{id}                       |
-| `api/v1/documents.py`                          | POST /documents/upload (lokale Speicherung)               |
-| `agents/state.py`                              | AgentState TypedDict                                      |
-| `agents/graph.py` → Nodes `ingest` & `extract` | LLM-Extraktion                                            |
-
-### Teilweise implementiert
-
-| Modul                                           | Was fehlt                                         |
-| ----------------------------------------------- | ------------------------------------------------- |
-| `api/v1/workflows.py`                           | `POST /run` funktioniert; `POST /resume` ist Stub |
-| `agents/graph.py` → Nodes `chronology` & `gaps` | Keine echte Logik                                 |
-| `domain/services/chronology_builder.py`         | Gap-Erkennung nur per Flag                        |
-
-### Stubs / Platzhalter
-
-| Modul                                         | Status                               |
-| --------------------------------------------- | ------------------------------------ |
-| `infrastructure/azure_openai.py` → Embeddings | Deaktiviert (OpenAI SDK direkt genutzt) |
-
-### Fehlende kritische Features (Backend)
-
-- **Dossier-Generierung**: Kein PDF-Generator (Epic 6)
-- **Stripe-Payment**: Keine Integration (Epic 5)
-- **Tests**: Nur `test_health()` — keine Tests für Auth, Cases, Workflows
-- **US-3.3 Frontend**: "Wir konnten keine Zählernummer finden."-UI mit zwei Optionen fehlt
-
----
-
-## Frontend – Gesamtstatus
-
-### Vollständig implementiert
-
-| Bereich                 | Beschreibung                                                   |
-| ----------------------- | -------------------------------------------------------------- |
-| **Design System**       | Tokens (Farben, Typografie, Shadows) in `theme/tokens.ts`      |
-| **Komponenten**         | Button, Badge, Card, Icon, Nav                                 |
-| **Routing**             | State-basiertes Routing via `usePageState`                     |
-| **services/api.ts**     | Typisierter HTTP-Client mit `credentials: "include"`           |
-| **Login/Register**      | Echte API-Calls, Validierung, Passwort-Bestätigung             |
-| **Forgot-Password**     | Tab-basierter Flow im Login-Screen                             |
-| **Dashboard**           | Echte Cases via API, Loading/Empty State, Delete-Modal, Logout |
-| **Landing Page**        | Vollständig                                                    |
-| **Case Flow (4 Steps)** | UI vollständig, kein Backend-Connect                           |
-| **Dossier Screen**      | Animierter Fortschritt, kein Backend-Connect                   |
-| **Preisseite**          | Marketing-Copy vollständig                                     |
-
-### Fehlende kritische Features (Frontend)
-
-- **Datei-Upload**: UI vorhanden, kein `POST /cases/{id}/documents` Call
-- **Workflow-Trigger**: Analyse simuliert, kein `POST /workflows/run`
-- **Passwort-Reset-Page**: `/reset-password?token=...` Seite fehlt noch
-- **React Router**: State-basiert, TODO für Migration
+1. **EPIC 6** implementieren: PDF-Dossier-Generierung (weasyprint / reportlab)
+2. **React Router** Migration: State-basiertes Routing → React Router v6
+3. **US-5.5** verifizieren: Stripe-Dashboard-Konfiguration (Steuer, Rechnung, Branding)
 
 ---
 
@@ -228,16 +209,6 @@ alembic upgrade head
 | Komponente           | Status                                                    |
 | -------------------- | --------------------------------------------------------- |
 | `docker-compose.yml` | Vollständig: PostgreSQL, MinIO, Qdrant, Backend, Frontend |
-| `alembic/`           | Neu: vollständiges Setup mit initialer Migration          |
+| `alembic/`           | Vollständiges Setup mit initialer Migration               |
 | GitHub Actions (CI)  | Tests + Docker Build/Push zu GHCR                         |
 | Kubernetes Manifests | Vorhanden, Deployment in CI auskommentiert                |
-
----
-
-## Nächste sinnvolle Schritte (nach Priorität)
-
-1. **US-3.3 Frontend** vervollständigen: "Keine Zählernummer"-Modal mit Upload-Option
-2. **Auth-Tests** schreiben (Register, Login, Logout, Tenant Isolation)
-3. **EPIC 4** implementieren: Chronologie + Gap-Erkennung (Backend-Nodes `chronology` & `gaps`)
-4. **EPIC 5** implementieren: Stripe-Checkout
-5. **EPIC 6** implementieren: PDF-Dossier-Generierung

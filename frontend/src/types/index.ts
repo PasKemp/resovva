@@ -18,10 +18,17 @@ export type Page =
 // ── Domain models ─────────────────────────────────────────────────────────────
 
 /** Backend-Status-Werte (1:1 mit dem DB-Enum) */
-export type CaseStatusApi = "DRAFT" | "WAITING_FOR_USER" | "PAID" | "COMPLETED";
+export type CaseStatusApi =
+  | "DRAFT"
+  | "WAITING_FOR_USER"
+  | "BUILDING_TIMELINE"
+  | "TIMELINE_READY"
+  | "PAYMENT_PENDING"
+  | "PAID"
+  | "COMPLETED";
 
 /** Deutsche Anzeigebezeichnungen für das UI */
-export type CaseStatus = "Entwurf" | "Wartet auf Zahlung" | "Abgeschlossen";
+export type CaseStatus = "Entwurf" | "Wartet auf Zahlung" | "Zahlung ausstehend" | "Abgeschlossen";
 
 /** API-Response-Format von GET /cases */
 export interface ApiCase {
@@ -63,45 +70,53 @@ export type OpponentCategory =
 
 /** Extrahiertes Feld mit Confidence-Score (US-9.2). */
 export interface ExtractionField {
-  key:                  string;
-  value:                string | number | null;
-  confidence:           number;
-  needs_review:         boolean;
-  auto_accepted:        boolean;
-  source_document_id:   string | null;
-  source_text_snippet:  string | null;
-  field_ignored:        boolean;
+  key: string;
+  value: string | number | null;
+  confidence: number;
+  needs_review: boolean;
+  auto_accepted: boolean;
+  source_document_id: string | null;
+  source_text_snippet: string | null;
+  field_ignored: boolean;
 }
 
 /** Erkannte Streitpartei (US-9.1). */
 export interface OpponentData {
-  category:     OpponentCategory | null;
-  name:         string | null;
-  confidence:   number;
+  category: OpponentCategory | null;
+  name: string | null;
+  confidence: number;
   needs_review: boolean;
 }
 
 /** Response von GET /cases/{caseId}/extraction-result (US-9.2). */
 export interface ExtractionResult {
-  fields:   ExtractionField[];
+  fields: ExtractionField[];
   opponent: OpponentData;
 }
 
 /** Extrahierte und vom Nutzer bestätigbare Fall-Kerndaten (US-3.2 / US-3.5). */
 export interface ExtractedData {
-  malo_id:           string | null;
-  meter_number:      string | null;
-  dispute_amount:    number | null;
-  network_operator:  string | null;
+  malo_id: string | null;
+  meter_number: string | null;
+  dispute_amount: number | null;
+  network_operator: string | null;
   opponent_category: string | null;
-  opponent_name:     string | null;
+  opponent_name: string | null;
 }
 
 export interface TimelineEvent {
-  id:     string;
-  date:   string;
-  event:  string;
-  source: "E-Mail" | "Foto" | "Post" | "Telefonat" | "Eigene Angabe" | "Sonstiges";
+  event_id: string;
+  case_id: string;
+  event_date: string;          // "YYYY-MM-DD"
+  description: string;
+  source_doc_id: string | null;
+  source_type: "ai" | "user";
+  is_gap: boolean;
+}
+
+export interface TimelineResponse {
+  status: "building" | "ready" | "empty";
+  events: TimelineEvent[];
 }
 
 // ── Component prop interfaces ─────────────────────────────────────────────────
@@ -117,20 +132,23 @@ export interface WithSetLoggedIn {
 // ── Mappers ───────────────────────────────────────────────────────────────────
 
 const STATUS_MAP: Record<CaseStatusApi, CaseStatus> = {
-  DRAFT:            "Entwurf",
-  WAITING_FOR_USER: "Wartet auf Zahlung",
-  PAID:             "Wartet auf Zahlung",
-  COMPLETED:        "Abgeschlossen",
+  DRAFT:             "Entwurf",
+  WAITING_FOR_USER:  "Wartet auf Zahlung",
+  BUILDING_TIMELINE: "Entwurf",
+  TIMELINE_READY:    "Entwurf",
+  PAYMENT_PENDING:   "Zahlung ausstehend",
+  PAID:              "Abgeschlossen",
+  COMPLETED:         "Abgeschlossen",
 };
 
 /** Wandelt das API-Case-Format in das UI-Case-Format um. */
 export function mapApiCase(c: ApiCase): Case {
   return {
-    apiId:         c.case_id,
-    id:            c.case_id.slice(-6).toUpperCase(),
-    date:          new Date(c.created_at).toLocaleDateString("de-DE"),
-    operator:      c.network_operator ?? "Netzbetreiber unbekannt",
-    status:        STATUS_MAP[c.status] ?? "Entwurf",
+    apiId: c.case_id,
+    id: c.case_id.slice(-6).toUpperCase(),
+    date: new Date(c.created_at).toLocaleDateString("de-DE"),
+    operator: c.network_operator ?? "Netzbetreiber unbekannt",
+    status: STATUS_MAP[c.status] ?? "Entwurf",
     documentCount: c.document_count,
   };
 }

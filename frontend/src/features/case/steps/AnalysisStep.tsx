@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { colors, textStyles, typography } from "../../../theme/tokens";
 import { Icon } from "../../../components";
 import { OpponentConfirmation } from "../../../components/OpponentConfirmation";
 import {
-  caseAnalyzeApi, analysisApi, extractionApi,
+  caseAnalyzeApi, analysisApi, extractionApi, documentsApi,
 } from "../../../services/api";
 import type { AnalysisResultResponse, DocumentListItem } from "../../../services/api";
 import type { ExtractionResult, ExtractionField, OpponentCategory } from "../../../types";
@@ -35,33 +37,51 @@ interface AnalysisStepProps {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function splitAndHighlight(text: string, snippets: string[]): JSX.Element {
-  for (const s of snippets) {
-    if (!s) continue;
-    const idx = text.indexOf(s);
-    if (idx >= 0) {
-      return (
-        <>
-          {text.slice(0, idx)}
-          <mark style={{ background: "#d1fae5", borderRadius: 3, padding: "0 2px", fontWeight: 600 }}>
-            {text.slice(idx, idx + s.length)}
-          </mark>
-          {text.slice(idx + s.length)}
-        </>
-      );
-    }
-  }
-  return <>{text}</>;
-}
-
 // ── Column A: Document content (flex-1, fills space from CaseFlow's DocNav) ───
 
+const MD_COMPONENTS: import("react-markdown").Components = {
+  p:    ({ children }) => <p    style={{ fontFamily: typography.sans, fontSize: 13, color: colors.mid, lineHeight: 1.75, marginBottom: 10, marginTop: 0 }}>{children}</p>,
+  h1:   ({ children }) => <h2   style={{ fontFamily: typography.sans, fontSize: 16, fontWeight: 700, color: colors.dark, marginBottom: 6, marginTop: 20 }}>{children}</h2>,
+  h2:   ({ children }) => <h3   style={{ fontFamily: typography.sans, fontSize: 14, fontWeight: 700, color: colors.dark, marginBottom: 4, marginTop: 16 }}>{children}</h3>,
+  h3:   ({ children }) => <p    style={{ fontFamily: typography.sans, fontSize: 13, fontWeight: 700, color: colors.dark, marginBottom: 2, marginTop: 12 }}>{children}</p>,
+  ul:   ({ children }) => <ul   style={{ paddingLeft: 18, marginBottom: 10, marginTop: 0 }}>{children}</ul>,
+  ol:   ({ children }) => <ol   style={{ paddingLeft: 18, marginBottom: 10, marginTop: 0 }}>{children}</ol>,
+  li:   ({ children }) => <li   style={{ fontFamily: typography.sans, fontSize: 13, color: colors.mid, lineHeight: 1.7, marginBottom: 2 }}>{children}</li>,
+  code: ({ children }) => {
+    const val = String(children);
+    if (val === "__MASK_IBAN__") {
+      return <span style={{ background: "#DCFCE7", color: "#15803D", padding: "1px 6px", borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: "help" }} title="Zu deiner Sicherheit vor der KI verborgen">🔒 IBAN</span>;
+    }
+    if (val === "__MASK_EMAIL__") {
+      return <span style={{ background: "#DCFCE7", color: "#15803D", padding: "1px 6px", borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: "help" }} title="Zu deiner Sicherheit vor der KI verborgen">🔒 E-Mail</span>;
+    }
+    return <code style={{ fontFamily: "monospace", fontSize: 11, background: colors.bg, borderRadius: 4, padding: "1px 5px", color: colors.mid }}>{children}</code>;
+  },
+  table: ({ children }) => (
+    <div style={{ overflowX: "auto", marginBottom: 14 }}>
+      <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12, fontFamily: typography.sans }}>{children}</table>
+    </div>
+  ),
+  th: ({ children }) => (
+    <th style={{ background: colors.bg, borderBottom: `2px solid ${colors.border}`, padding: "6px 10px", textAlign: "left", fontWeight: 600, color: colors.dark, whiteSpace: "nowrap" }}>{children}</th>
+  ),
+  td: ({ children }) => (
+    <td style={{ borderBottom: `1px solid ${colors.border}`, padding: "5px 10px", color: colors.mid, verticalAlign: "top" }}>{children}</td>
+  ),
+};
+
 const DocContent: React.FC<{
-  doc: DocumentListItem | null;
-  snippets: string[];
-  phase: Phase;
-}> = ({ doc, snippets, phase }) => {
-  const text = doc?.masked_text_preview ?? "";
+  doc:            DocumentListItem | null;
+  phase:          Phase;
+  summary:        string | null;
+  summaryLoading: boolean;
+}> = ({ doc, phase, summary, summaryLoading }) => {
+  const rawText = doc?.masked_text_preview ?? "";
+  // Replace PII masking tokens with backtick-wrapped placeholders so the custom
+  // code component in MD_COMPONENTS can render them as green highlighted spans.
+  const text = rawText
+    .replace(/\*\*\*IBAN\*\*\*/g, "`__MASK_IBAN__`")
+    .replace(/\*\*\*@\*\*\*\.\*\*\*/g, "`__MASK_EMAIL__`");
 
   return (
     <main style={{
@@ -120,6 +140,27 @@ const DocContent: React.FC<{
 
         {phase !== "analyzing" && text && (
           <>
+            {/* KI-Zusammenfassung */}
+            {summaryLoading && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+                <div style={{ width: 14, height: 14, border: `2px solid ${colors.teal}`, borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite", flexShrink: 0 }} />
+                <span style={{ fontFamily: typography.sans, fontSize: 12, color: colors.muted }}>Zusammenfassung wird erstellt…</span>
+              </div>
+            )}
+            {summary && (
+              <div style={{
+                background: colors.tealLight, border: `1px solid ${colors.teal}`,
+                borderRadius: 12, padding: "12px 16px", marginBottom: 16,
+              }}>
+                <p style={{ fontFamily: typography.sans, fontWeight: 700, fontSize: 12, color: colors.teal, marginBottom: 8, marginTop: 0 }}>
+                  ✦ KI-Zusammenfassung
+                </p>
+                {summary.split("\n").filter(Boolean).map((line, i) => (
+                  <p key={i} style={{ fontFamily: typography.sans, fontSize: 12, color: colors.mid, lineHeight: 1.65, margin: "0 0 3px 0" }}>{line}</p>
+                ))}
+              </div>
+            )}
+
             {/* Privacy notice */}
             <div style={{
               display: "flex", alignItems: "flex-start", gap: 10,
@@ -127,18 +168,24 @@ const DocContent: React.FC<{
               borderRadius: 12, padding: "10px 14px", marginBottom: 20,
             }}>
               <span style={{ fontSize: 16, flexShrink: 0 }}>🔒</span>
-              <p style={{ fontFamily: typography.sans, fontSize: 12, color: "#15803D", lineHeight: 1.5 }}>
+              <p style={{ fontFamily: typography.sans, fontSize: 12, color: "#15803D", lineHeight: 1.5, margin: 0 }}>
                 IBAN und E-Mail-Adressen wurden vor der KI-Analyse automatisch geschwärzt. Das Original bleibt unverändert.
               </p>
             </div>
 
-            {/* Extracted text */}
-            <div style={{
-              fontFamily: "monospace", fontSize: 12, color: colors.mid,
-              lineHeight: 1.9, whiteSpace: "pre-wrap", wordBreak: "break-word",
-            }}>
-              {splitAndHighlight(text, snippets)}
-              {text.length >= 500 && <span style={{ color: colors.muted }}> …</span>}
+            {/* Markdown-Rendering */}
+            <div style={{ position: "relative" }}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+                {text}
+              </ReactMarkdown>
+              {/* Sanftes Fade-Out wenn Text gekürzt */}
+              {rawText.length >= 2490 && (
+                <div style={{
+                  position: "absolute", bottom: 0, left: 0, right: 0, height: 64,
+                  background: "linear-gradient(to bottom, transparent, #fff)",
+                  pointerEvents: "none",
+                }} />
+              )}
             </div>
           </>
         )}
@@ -222,15 +269,21 @@ interface RightPanelProps {
   autoFields:       ExtractionField[];
   onFieldChange:    (k: string, v: string) => void;
   onOpponentChange: (cat: OpponentCategory, name: string) => void;
+  onUploadMore:     () => void;
 }
 
 const RightPanel: React.FC<RightPanelProps> = ({
   phase, allOcrDone, confirming, canConfirm, error,
   extraction, docs, fieldValues,
   reviewFields, autoFields,
-  onFieldChange, onOpponentChange,
+  onFieldChange, onOpponentChange, onUploadMore,
 }) => {
   const [expandAuto, setExpandAuto] = useState(false);
+
+  // US-3.3: both critical fields missing → offer to upload additional document
+  const isMissingCritical = phase === "review" &&
+    !(fieldValues["meter_number"] ?? "").trim() &&
+    !(fieldValues["malo_id"] ?? "").trim();
 
   return (
     <aside style={{
@@ -394,6 +447,32 @@ const RightPanel: React.FC<RightPanelProps> = ({
             ⚠ Bitte alle markierten Felder ausfüllen.
           </p>
         )}
+
+        {/* US-3.3: Missing critical data → offer upload of additional document */}
+        {isMissingCritical && (
+          <div style={{
+            background: "#FFF7ED", border: "1px solid #FED7AA",
+            borderRadius: 10, padding: "12px 14px", marginTop: 16,
+          }}>
+            <p style={{ fontFamily: typography.sans, fontSize: 12, fontWeight: 600, color: colors.orange, marginBottom: 6 }}>
+              ⚠ Wir konnten keine Zählernummer finden.
+            </p>
+            <p style={{ fontFamily: typography.sans, fontSize: 11, color: colors.mid, lineHeight: 1.5, marginBottom: 10 }}>
+              Füge manuell eine Zählernummer oder MaLo-ID ein, oder lade ein weiteres Dokument hoch.
+            </p>
+            <button
+              onClick={onUploadMore}
+              style={{
+                width: "100%", padding: "8px 12px", borderRadius: 8,
+                border: `1.5px solid ${colors.orange}`, background: "transparent",
+                color: colors.orange, fontFamily: typography.sans, fontSize: 12,
+                fontWeight: 600, cursor: "pointer",
+              }}
+            >
+              Weiteres Dokument hochladen
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );
@@ -405,16 +484,19 @@ const RightPanel: React.FC<RightPanelProps> = ({
  * Step 2: KI-Analyse — OCR-Ergebnis prüfen, Daten bestätigen (Human-in-the-Loop).
  */
 export const AnalysisStep: React.FC<AnalysisStepProps> = ({
-  caseId, onNext, onBack: _onBack, docs, selectedDoc, onActionChange,
+  caseId, onNext, onBack, docs, selectedDoc, onActionChange,
 }) => {
-  const [phase,       setPhase]      = useState<Phase>("ocr");
-  const [extraction,  setExtraction] = useState<ExtractionResult | null>(null);
-  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
-  const [oppCat,      setOppCat]     = useState<OpponentCategory>("sonstiges");
-  const [oppName,     setOppName]    = useState("");
-  const [starting,    setStarting]   = useState(false);
-  const [confirming,  setConfirming] = useState(false);
-  const [error,       setError]      = useState<string | null>(null);
+  const [phase,           setPhase]          = useState<Phase>("ocr");
+  const [extraction,      setExtraction]      = useState<ExtractionResult | null>(null);
+  const [fieldValues,     setFieldValues]     = useState<Record<string, string>>({});
+  const [oppCat,          setOppCat]          = useState<OpponentCategory>("sonstiges");
+  const [oppName,         setOppName]         = useState("");
+  const [starting,        setStarting]        = useState(false);
+  const [confirming,      setConfirming]      = useState(false);
+  const confirmingRef = useRef(false); // sofortiger Lock – verhindert Race-Condition durch Mehrfachklick
+  const [error,           setError]           = useState<string | null>(null);
+  const [summaries,       setSummaries]       = useState<Record<string, string>>({});
+  const [summaryLoading,  setSummaryLoading]  = useState(false);
   const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const initExtraction = useCallback((r: ExtractionResult) => {
@@ -444,6 +526,21 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
     };
     initExtraction(r);
   }, [initExtraction]);
+
+  // Zusammenfassung laden wenn Dokument gewählt und Text lang genug
+  useEffect(() => {
+    if (!selectedDoc || !selectedDoc.masked_text_preview) return;
+    if (selectedDoc.masked_text_preview.length < 600) return;
+    const id = selectedDoc.document_id;
+    if (summaries[id] !== undefined) return;
+    setSummaryLoading(true);
+    documentsApi.summarize(caseId, id)
+      .then(r => {
+        setSummaries(prev => ({ ...prev, [id]: r.summary ?? "" }));
+        setSummaryLoading(false);
+      })
+      .catch(() => setSummaryLoading(false));
+  }, [caseId, selectedDoc, summaries]);
 
   // On mount: check if analysis already done
   useEffect(() => {
@@ -507,6 +604,8 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
   }, [caseId]);
 
   const handleConfirm = useCallback(async () => {
+    if (confirmingRef.current) return; // sofortiger Lock gegen Mehrfachklick
+    confirmingRef.current = true;
     setConfirming(true);
     setError(null);
     try {
@@ -524,6 +623,7 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
       });
       onNext();
     } catch (err: unknown) {
+      confirmingRef.current = false; // Lock freigeben damit Nutzer es erneut versuchen kann
       setError(err instanceof Error ? err.message : "Bestätigung fehlgeschlagen.");
     } finally {
       setConfirming(false);
@@ -549,7 +649,7 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
     }
   }, [phase, allOcrDone, starting, confirming, canConfirm, handleStart, handleConfirm, onActionChange]);
 
-  const snippets = extraction?.fields.map(f => f.source_text_snippet).filter(Boolean) as string[] ?? [];
+  const currentSummary = selectedDoc ? (summaries[selectedDoc.document_id] ?? null) : null;
 
   return (
     // Füllt die rechte flex-1-Spalte von CaseFlow vollständig aus (2 sub-Spalten)
@@ -558,7 +658,7 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
       style={{ display: "flex", height: "100%", overflow: "hidden" }}
     >
       {/* ── Spalte A: Dokumentinhalt (flex-1) ── */}
-      <DocContent doc={selectedDoc} snippets={snippets} phase={phase} />
+      <DocContent doc={selectedDoc} phase={phase} summary={currentSummary} summaryLoading={summaryLoading} />
 
       {/* ── Spalte B: Erkannte Daten (380px) ── */}
       <RightPanel
@@ -574,6 +674,7 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
         autoFields={autoFields}
         onFieldChange={(k, v) => setFieldValues(p => ({ ...p, [k]: v }))}
         onOpponentChange={(cat, name) => { setOppCat(cat); setOppName(name); }}
+        onUploadMore={onBack}
       />
     </div>
   );

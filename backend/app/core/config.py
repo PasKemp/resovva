@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     s3_secret_key: str = "minioadmin"
     s3_bucket_name: str = "resovva-docs"
 
+    # Stripe (Epic 5 – Checkout / Payments)
+    stripe_secret_key: Optional[str] = None       # sk_live_... or sk_test_...
+    stripe_webhook_secret: Optional[str] = None   # whsec_...
+    stripe_price_id: Optional[str] = None         # price_...  (€20 pro Fall)
+    app_base_url: str = "http://localhost:5173"   # Redirect-URLs nach Checkout
+
     # Privacy
     data_retention_days: int = 30
 

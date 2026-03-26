@@ -58,12 +58,22 @@ def test_me_after_logout(client, test_user):
 # ── US-1.2: Registrierung ─────────────────────────────────────────────────────
 
 
+_REGISTER_PROFILE = {
+    "first_name": "Max",
+    "last_name":  "Mustermann",
+    "street":     "Musterstraße 1",
+    "postal_code": "12345",
+    "city":       "Berlin",
+}
+
+
 def test_register_success(client):
     """Erfolgreiche Registrierung → 201 + JWT-Cookie gesetzt."""
     res = client.post("/api/v1/auth/register", json={
         "email":          "neu@example.com",
         "password":       "sicheresPasswort123",
         "accepted_terms": True,
+        **_REGISTER_PROFILE,
     })
     assert res.status_code == 201
     assert res.json()["status"] == "success"
@@ -97,6 +107,7 @@ def test_register_duplicate_email(client, test_user):
         "email":          test_user.email,
         "password":       "anderesPasswort123",
         "accepted_terms": True,
+        **_REGISTER_PROFILE,
     })
     assert res.status_code == 409
 
@@ -107,6 +118,7 @@ def test_register_auto_login(client):
         "email":          "autoLogin@example.com",
         "password":       "sicheresPasswort123",
         "accepted_terms": True,
+        **_REGISTER_PROFILE,
     })
     assert res.status_code == 201
     # Cookie erlaubt sofortigen Zugriff auf geschützte Endpunkte

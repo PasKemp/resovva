@@ -22,8 +22,10 @@ import uuid as _uuid
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from app.agents.nodes.build_master_timeline import node_build_master_timeline
 from app.agents.nodes.detect_opponent import node_detect_opponent
 from app.agents.nodes.extract import check_missing_data, node_extract
+from app.agents.nodes.extract_events import node_extract_events
 from app.agents.nodes.mastr_lookup import node_mastr_lookup
 from app.agents.state import AgentState
 
@@ -207,12 +209,14 @@ def build_graph(checkpointer) -> CompiledStateGraph:
     """
     graph = StateGraph(AgentState)
 
-    graph.add_node("load_docs", _node_load_docs)
-    graph.add_node("detect_opponent", node_detect_opponent)  # US-9.1
-    graph.add_node("extract", node_extract)
-    graph.add_node("missing_data", _node_missing_data)
-    graph.add_node("mastr_lookup", node_mastr_lookup)
-    graph.add_node("confirm", _node_confirm)
+    graph.add_node("load_docs",             _node_load_docs)
+    graph.add_node("detect_opponent",       node_detect_opponent)  # US-9.1
+    graph.add_node("extract",               node_extract)
+    graph.add_node("missing_data",          _node_missing_data)
+    graph.add_node("mastr_lookup",          node_mastr_lookup)
+    graph.add_node("confirm",               _node_confirm)
+    graph.add_node("extract_events",        node_extract_events)        # US-4.1
+    graph.add_node("build_master_timeline", node_build_master_timeline)  # US-4.2
 
     graph.set_entry_point("load_docs")
     graph.add_edge("load_docs", "detect_opponent")
@@ -229,6 +233,11 @@ def build_graph(checkpointer) -> CompiledStateGraph:
     )
     graph.add_edge("missing_data", END)
     graph.add_edge("mastr_lookup", "confirm")
+
+    # US-4.1 / US-4.2: Nach Bestätigung → Map → Reduce → Ende
+    graph.add_edge("confirm",               "extract_events")
+    graph.add_edge("extract_events",        "build_master_timeline")
+    graph.add_edge("build_master_timeline", END)
 
     return graph.compile(
         checkpointer=checkpointer,
