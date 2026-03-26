@@ -39,8 +39,8 @@ Resovva führt Nutzer durch Streitigkeiten mit Stromanbietern und Netzbetreibern
 | Epic | Beschreibung | Status |
 |---|---|---|
 | **Epic 1** | Auth, Sessions, Multi-Case-Dashboard, DSGVO Hard-Delete | ✅ Vollständig |
-| **Epic 2** | Dokument-Upload, OCR, PII-Masking, QR-Code-Upload | 🚧 In Arbeit (US-2.1 ✅) |
-| **Epic 3** | LangGraph-Agent, Entitäten-Extraktion, Chronologie | 📋 Backlog |
+| **Epic 2** | Dokument-Upload, OCR, PII-Masking, QR-Code-Upload | ✅ Vollständig |
+| **Epic 3** | LangGraph-Agent, RAG, Entitäten-Extraktion, MaStR-Lookup, HiTL | ✅ Vollständig (US-3.3 Frontend partiell) |
 | **Epic 4** | Gap-Analysis, Nutzer-Feedback-Loop | 📋 Backlog |
 | **Epic 5** | Stripe-Zahlung (Pay-per-Case) | 📋 Backlog |
 | **Epic 6** | PDF-Dossier-Generierung | 📋 Backlog |

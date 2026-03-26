@@ -5,12 +5,12 @@ Chat/Completion und Embeddings. Für DEV: OPENAI_API_KEY (platform.openai.com).
 Für Production: Azure-Variablen (DSGVO: Azure Germany).
 """
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from app.core.config import get_settings
 
 
-def get_llm():
+def get_llm() -> Any:
     """
     Liefert das Chat-Modell für LangChain/LangGraph.
 
@@ -47,7 +47,7 @@ def get_embeddings(
     endpoint: Optional[str] = None,
     api_key: Optional[str] = None,
     deployment: Optional[str] = None,
-):
+) -> Optional[Any]:
     """
     Liefert das Embeddings-Modell für RAG (US-3.1).
 

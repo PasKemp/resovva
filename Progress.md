@@ -1,10 +1,61 @@
 # Progress.md – Resovva.de
 
-Stand: 2026-03-22
+Stand: 2026-03-26
 
 ---
 
-## Gesamtstatus: EPIC 1 implementiert – Auth, Sessions, Cases-API, Frontend angebunden
+## Gesamtstatus: EPIC 1 ✅ · EPIC 2 ✅ · EPIC 3 ✅ (US-3.3 Frontend partiell)
+
+---
+
+---
+
+## EPIC 3: AI Analysis & Extraction Engine ✅ (US-3.3 Frontend partiell)
+
+### US-3.1: RAG Foundation ✅
+
+- `core/rag.py`: `chunk_and_embed()`, `search_rag()`, `search_rag_with_meta()` — Chunking (1000 Zeichen, 100 Overlap), OpenAI `text-embedding-3-small`, Qdrant-Speicherung
+- `infrastructure/qdrant_client.py`: Collection-Management (1536-dim), Upsert, semantische Suche mit `case_id`-Filter, DSGVO-Delete
+
+### US-3.2: Core Entity Extraction ✅
+
+- `agents/nodes/extract.py`: 3 gezielte RAG-Suchen (Zählernummer, MaLo, Betrag), strikt `gpt-4o-mini` mit `with_structured_output`
+- Confidence-Scoring: Regex-Match 1.0 · LLM-only 0.6 · fehlend 0.0
+- Source-Tracking: `source_document_id` + `source_text_snippet` pro Feld
+
+### US-3.3: Early Exit & Missing Data UI ⚠️ Backend ✅ · Frontend partiell
+
+- `agents/graph.py`: Conditional Edge `should_request_more_data()` — wenn `meter_number IS NULL AND malo_id IS NULL` → Pause
+- Case-Status → `WAITING_FOR_USER`; LangGraph-Interrupt vor `confirm`-Node
+- **Frontend-Lücke:** Spezifische "Wir konnten keine Zählernummer finden."-Meldung + "Weiteres Dokument hochladen"-Button fehlen; die bestehende `review`-Phase deckt manuelle Korrektur ab
+
+### US-3.4: MaStR-API Lookup & AI Fallback ✅
+
+- `agents/nodes/mastr_lookup.py`: Echter MaStR-API-Call mit 5-Sek-Timeout
+- RAG-Fallback bei API-Ausfall; Persistierung in DB mit Confidence-Score
+
+### US-3.5: Human-in-the-Loop & Graph Resume ✅
+
+- `api/v1/cases.py` → `PUT /cases/{case_id}/analysis/confirm`: HiTL-Bestätigung mit `graph.update_state()` + `graph.invoke(None, config)` Resume
+- `GET /cases/{case_id}/extraction-result`: Confidence-Scores + needs_review-Flags (US-9.2)
+- Frontend `AnalysisStep`: vollständiges Review-Formular, Bestätigen-Button → nächster Step
+
+### Bonus: Über EPIC 3 hinaus implementiert
+
+- `agents/nodes/detect_opponent.py`: Streitpartei-Erkennung mit Kategorie-Klassifikation (US-9.1)
+- `core/category_field_config.py`: Kategorie-Feld-Mapping für dynamische Formularfelder (US-9.5)
+- `api/v1/cases.py` → `PATCH /cases/{case_id}`: Opponent-Kategorie/-Name updaten (US-9.4)
+- `api/v1/documents.py`: S3/MinIO-Upload mit Magic-Byte-Validierung + Async-OCR (EPIC 2 Abschluss)
+- `domain/models/db.py`: `MobileUploadToken`, `LlamaParseUsage` — EPIC 2 Erweiterungen
+
+---
+
+## EPIC 2: Dokument-Upload & OCR ✅
+
+- S3/MinIO-Upload (10 MB-Limit, MIME-Validierung), Async-OCR-Pipeline
+- PII-Masking (IBAN, E-Mail) vor LLM-Übergabe (`core/security.py`)
+- QR-Code Mobile-Upload (`MobileUploadToken`, `POST /mobile-upload`)
+- LlamaParse-Fallback für schwierige PDFs + Free-Tier-Monitoring
 
 ---
 
@@ -134,18 +185,14 @@ alembic upgrade head
 
 | Modul                                         | Status                               |
 | --------------------------------------------- | ------------------------------------ |
-| `agents/tools/mastr_lookup.py`                | Hardcoded-Dummy, kein MaStR-API-Call |
-| `infrastructure/qdrant_client.py`             | Alle Funktionen geben None/[] zurück |
-| `infrastructure/azure_openai.py` → Embeddings | Deaktiviert                          |
-| `api/v1/cases.py` → `_delete_from_storage`    | Stub (Epic 2)                        |
-| `api/v1/cases.py` → `_delete_from_qdrant`     | Stub (Epic 2/3)                      |
+| `infrastructure/azure_openai.py` → Embeddings | Deaktiviert (OpenAI SDK direkt genutzt) |
 
 ### Fehlende kritische Features (Backend)
 
-- **S3/MinIO-Integration**: Upload geht nach `/tmp`, kein Bucket (Epic 2)
 - **Dossier-Generierung**: Kein PDF-Generator (Epic 6)
 - **Stripe-Payment**: Keine Integration (Epic 5)
 - **Tests**: Nur `test_health()` — keine Tests für Auth, Cases, Workflows
+- **US-3.3 Frontend**: "Wir konnten keine Zählernummer finden."-UI mit zwei Optionen fehlt
 
 ---
 
@@ -189,10 +236,8 @@ alembic upgrade head
 
 ## Nächste sinnvolle Schritte (nach Priorität)
 
-1. **EPIC 2** implementieren: S3/MinIO-Upload + echte Document-API
-2. **Passwort-Reset-Page** im Frontend (Reset-Token aus URL lesen)
-3. **Auth-Tests** schreiben (Register, Login, Logout, Tenant Isolation)
-4. **EPIC 3** implementieren: LLM-Extraktion + Human-in-the-Loop
-5. **EPIC 4** implementieren: Chronologie + Gaps
-6. **EPIC 5** implementieren: Stripe-Checkout
-7. **EPIC 6** implementieren: PDF-Dossier-Generierung
+1. **US-3.3 Frontend** vervollständigen: "Keine Zählernummer"-Modal mit Upload-Option
+2. **Auth-Tests** schreiben (Register, Login, Logout, Tenant Isolation)
+3. **EPIC 4** implementieren: Chronologie + Gap-Erkennung (Backend-Nodes `chronology` & `gaps`)
+4. **EPIC 5** implementieren: Stripe-Checkout
+5. **EPIC 6** implementieren: PDF-Dossier-Generierung

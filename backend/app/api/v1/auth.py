@@ -13,7 +13,9 @@ Brute-Force-Schutz: slowapi Rate Limiting auf /login (5 Versuche/15min/IP).
 """
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr, field_validator
@@ -54,6 +56,7 @@ def _set_auth_cookie(response: Response, token: str) -> None:
 
 # ── Request / Response Schemas ────────────────────────────────────────────────
 
+
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
@@ -82,7 +85,6 @@ class RegisterRequest(BaseModel):
     @field_validator("postal_code")
     @classmethod
     def postal_code_format(cls, v: str) -> str:
-        import re
         if not re.match(r"^\d{5}$", v.strip()):
             raise ValueError("PLZ muss genau 5 Ziffern haben (z.B. 12345).")
         return v.strip()
@@ -116,10 +118,61 @@ class ResetPasswordRequest(BaseModel):
         return v
 
 
+# ── Response Schemas ──────────────────────────────────────────────────────────
+
+
+class RegisterResponse(BaseModel):
+    """Response für POST /auth/register."""
+
+    status: str
+    user_id: str
+    message: str
+
+
+class LoginResponse(BaseModel):
+    """Response für POST /auth/login."""
+
+    status: str
+    user_id: str
+
+
+class MeResponse(BaseModel):
+    """Response für GET /auth/me."""
+
+    user_id: str
+    email: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    street: Optional[str] = None
+    postal_code: Optional[str] = None
+    city: Optional[str] = None
+    profile_complete: bool
+
+
+class LogoutResponse(BaseModel):
+    """Response für POST /auth/logout."""
+
+    status: str
+    message: str
+
+
+class MessageResponse(BaseModel):
+    """Generische Nachrichtenantwort (forgot-password)."""
+
+    message: str
+
+
+class StatusMessageResponse(BaseModel):
+    """Response mit Status und Nachricht (reset-password)."""
+
+    status: str
+    message: str
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
-@router.post("/register", status_code=201)
-def register(body: RegisterRequest, response: Response, db: Session = Depends(get_db)):
+@router.post("/register", status_code=201, response_model=RegisterResponse)
+def register(body: RegisterRequest, response: Response, db: Session = Depends(get_db)) -> RegisterResponse:
     """
     Legt neuen Nutzer an und setzt direkt das Session-Cookie (kein separater Login nötig).
 
@@ -149,16 +202,16 @@ def register(body: RegisterRequest, response: Response, db: Session = Depends(ge
     _set_auth_cookie(response, token)
 
     logger.info("Neuer Nutzer registriert: %s", user.id)
-    return {
-        "status": "success",
-        "user_id": str(user.id),
-        "message": "Registrierung erfolgreich. Du bist eingeloggt.",
-    }
+    return RegisterResponse(
+        status="success",
+        user_id=str(user.id),
+        message="Registrierung erfolgreich. Du bist eingeloggt.",
+    )
 
 
-@router.post("/login")
+@router.post("/login", response_model=LoginResponse)
 @limiter.limit("5/15 minutes")
-def login(request: Request, body: LoginRequest, response: Response, db: Session = Depends(get_db)):
+def login(request: Request, body: LoginRequest, response: Response, db: Session = Depends(get_db)) -> LoginResponse:
     """
     Prüft Credentials und setzt Session-Cookie.
     Rate-Limit: max. 5 Versuche pro IP in 15 Minuten (Brute-Force-Schutz).
@@ -178,11 +231,11 @@ def login(request: Request, body: LoginRequest, response: Response, db: Session 
     token = create_access_token(str(user.id))
     _set_auth_cookie(response, token)
 
-    return {"status": "success", "user_id": str(user.id)}
+    return LoginResponse(status="success", user_id=str(user.id))
 
 
-@router.get("/me")
-def me(current_user: CurrentUser):
+@router.get("/me", response_model=MeResponse)
+def me(current_user: CurrentUser) -> MeResponse:
     """
     Gibt die Daten des aktuell eingeloggten Nutzers zurück.
     Wird vom Frontend beim App-Start aufgerufen, um den Session-Status zu prüfen.
@@ -195,36 +248,36 @@ def me(current_user: CurrentUser):
         current_user.first_name and current_user.last_name and
         current_user.street and current_user.postal_code and current_user.city
     )
-    return {
-        "user_id":          str(current_user.id),
-        "email":            current_user.email,
-        "first_name":       current_user.first_name,
-        "last_name":        current_user.last_name,
-        "street":           current_user.street,
-        "postal_code":      current_user.postal_code,
-        "city":             current_user.city,
-        "profile_complete": profile_complete,
-    }
+    return MeResponse(
+        user_id=str(current_user.id),
+        email=current_user.email,
+        first_name=current_user.first_name,
+        last_name=current_user.last_name,
+        street=current_user.street,
+        postal_code=current_user.postal_code,
+        city=current_user.city,
+        profile_complete=profile_complete,
+    )
 
 
-@router.post("/logout")
-def logout(response: Response, _: CurrentUser):
+@router.post("/logout", response_model=LogoutResponse)
+def logout(response: Response, _: CurrentUser) -> LogoutResponse:
     """Löscht das Session-Cookie und beendet die Session."""
     response.delete_cookie(key=COOKIE_NAME, samesite="lax")
-    return {"status": "success", "message": "Erfolgreich abgemeldet."}
+    return LogoutResponse(status="success", message="Erfolgreich abgemeldet.")
 
 
-@router.post("/forgot-password")
-def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)):
+@router.post("/forgot-password", response_model=MessageResponse)
+def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)) -> MessageResponse:
     """
     Generiert Reset-Token und sendet E-Mail via Resend.
 
     Gibt immer dieselbe Antwort zurück – unabhängig ob E-Mail registriert ist
     (verhindert Enumeration).
     """
-    _neutral_response = {
-        "message": "Falls ein Account existiert, wurde eine E-Mail gesendet."
-    }
+    _neutral_response = MessageResponse(
+        message="Falls ein Account existiert, wurde eine E-Mail gesendet."
+    )
 
     user = db.query(User).filter(User.email == body.email).first()
     if not user:
@@ -249,11 +302,11 @@ def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)):
     db.commit()
 
     _send_reset_email(user.email, raw_token)
-    return _neutral_response
+    return _neutral_response  # type: ignore[return-value]
 
 
-@router.post("/reset-password")
-def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)):
+@router.post("/reset-password", response_model=StatusMessageResponse)
+def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)) -> StatusMessageResponse:
     """
     Setzt Passwort mit gültigem Reset-Token zurück.
     Token wird danach invalidiert (einmalige Verwendung).
@@ -286,7 +339,7 @@ def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)):
     db.commit()
 
     logger.info("Passwort zurückgesetzt für User: %s", user.id)
-    return {"status": "success", "message": "Passwort erfolgreich geändert."}
+    return StatusMessageResponse(status="success", message="Passwort erfolgreich geändert.")
 
 
 # ── E-Mail-Hilfsfunktion ─────────────────────────────────────────────────────

@@ -75,6 +75,7 @@ def hash_reset_token(raw_token: str) -> str:
     """SHA-256-Hash eines Raw-Tokens (für DB-Lookup)."""
     return hashlib.sha256(raw_token.encode()).hexdigest()
 
+
 # Presidio optional – bei Fehlern/fehlender Installation Fallback auf Regex
 _USE_PRESIDIO: Optional[bool] = None
 
@@ -84,11 +85,11 @@ def _presidio_available() -> bool:
         return _USE_PRESIDIO
     try:
         import os
-        if not os.environ.get("USE_PRESIDIO", "").strip().lower() in ("1", "true", "yes"):
+        if os.environ.get("USE_PRESIDIO", "").strip().lower() not in ("1", "true", "yes"):
             _USE_PRESIDIO = False
             return False
-        from presidio_analyzer import AnalyzerEngine
-        from presidio_anonymizer import AnonymizerEngine
+        from presidio_analyzer import AnalyzerEngine  # noqa: F401
+        from presidio_anonymizer import AnonymizerEngine  # noqa: F401
         _USE_PRESIDIO = True
         return True
     except ImportError:

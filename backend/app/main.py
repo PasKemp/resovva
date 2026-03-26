@@ -43,5 +43,5 @@ app.include_router(users.router,         prefix="/api/v1")
 
 
 @app.get("/health")
-def health():
+def health() -> dict[str, str]:
     return {"status": "ok"}

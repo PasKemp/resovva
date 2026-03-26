@@ -24,7 +24,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import CurrentUser
+from app.api.dependencies import CurrentUser, get_owned_case
 from app.domain.models.db import Case
 from app.infrastructure.database import get_db
 from app.infrastructure.storage import get_storage
@@ -32,6 +32,10 @@ from app.infrastructure.storage import get_storage
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/cases", tags=["cases"])
+
+# ── Konstanten ────────────────────────────────────────────────────────────────
+
+CONFIDENCE_THRESHOLD: float = 0.8
 
 
 # ── Response Schemas ──────────────────────────────────────────────────────────
@@ -146,6 +150,12 @@ class UpdateOpponentRequest(BaseModel):
     opponent_name: Optional[str] = None
 
 
+class UpdateOpponentResponse(BaseModel):
+    """Response für PATCH /cases/{case_id} (US-9.4)."""
+
+    status: str
+
+
 # ── GET /cases ────────────────────────────────────────────────────────────────
 
 
@@ -237,7 +247,7 @@ def delete_case(
     Raises:
         HTTPException 404: Fall nicht gefunden oder gehört anderem Nutzer.
     """
-    case = _get_owned_case(case_id, current_user, db)
+    case = get_owned_case(case_id, current_user, db)
 
     _delete_from_storage(case)
     _delete_from_qdrant(case_id)
@@ -274,7 +284,7 @@ async def start_analysis(
         HTTPException 409: OCR noch nicht abgeschlossen.
         HTTPException 404: Fall nicht gefunden.
     """
-    case = _get_owned_case(case_id, current_user, db)
+    case = get_owned_case(case_id, current_user, db)
 
     docs = case.documents
     if not docs:
@@ -378,7 +388,7 @@ def get_analysis_result(
     Raises:
         HTTPException 404: Analyse noch nicht abgeschlossen.
     """
-    case = _get_owned_case(case_id, current_user, db)
+    case = get_owned_case(case_id, current_user, db)
 
     data = case.extracted_data or {}
     if not data or ("extracted_at" not in data and "missing_data" not in data and "error" not in data):
@@ -418,7 +428,7 @@ async def confirm_analysis(
     """
     from app.agents.graph import get_agent_app
 
-    case = _get_owned_case(case_id, current_user, db)
+    case = get_owned_case(case_id, current_user, db)
 
     if case.status != "WAITING_FOR_USER":
         raise HTTPException(
@@ -472,7 +482,7 @@ def get_case_status(
     Returns:
         CaseStatusResponse: Aggregierter Status mit Zählern und optionalem Preview-Text.
     """
-    case = _get_owned_case(case_id, current_user, db)
+    case = get_owned_case(case_id, current_user, db)
 
     docs = case.documents
     if not docs:
@@ -517,7 +527,7 @@ def get_extraction_result(
     Raises:
         HTTPException 404: Analyse noch nicht abgeschlossen.
     """
-    case = _get_owned_case(case_id, current_user, db)
+    case = get_owned_case(case_id, current_user, db)
     data = case.extracted_data or {}
 
     if not data or "extracted_at" not in data:
@@ -526,8 +536,6 @@ def get_extraction_result(
     field_confidences: dict = data.get("field_confidences", {})
     source_snippets: dict = data.get("source_snippets", {})
     source_doc_ids: dict = data.get("source_doc_ids", {})
-
-    CONFIDENCE_THRESHOLD = 0.8
 
     def _make_field(key: str, value: object) -> ExtractionFieldResponse:
         confidence = field_confidences.get(key, 0.6 if value is not None else 0.0)
@@ -561,13 +569,13 @@ def get_extraction_result(
 # ── PATCH /cases/{case_id} ────────────────────────────────────────────────────
 
 
-@router.patch("/{case_id}", response_model=dict)
+@router.patch("/{case_id}", response_model=UpdateOpponentResponse)
 def update_case_opponent(
     case_id: str,
     payload: UpdateOpponentRequest,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
-) -> dict:
+) -> UpdateOpponentResponse:
     """
     Aktualisiert Streitpartei-Kategorie und -Name (US-9.4).
 
@@ -576,7 +584,7 @@ def update_case_opponent(
     Raises:
         HTTPException 404: Fall nicht gefunden.
     """
-    case = _get_owned_case(case_id, current_user, db)
+    case = get_owned_case(case_id, current_user, db)
 
     if payload.opponent_category is not None:
         case.opponent_category = payload.opponent_category
@@ -596,41 +604,10 @@ def update_case_opponent(
         "Case %s: Streitpartei aktualisiert – Kategorie=%s Name=%s",
         case_id, payload.opponent_category, payload.opponent_name,
     )
-    return {"status": "updated"}
+    return UpdateOpponentResponse(status="updated")
 
 
 # ── Private Hilfsfunktionen ───────────────────────────────────────────────────
-
-
-def _get_owned_case(case_id: str, current_user, db: Session) -> Case:
-    """
-    Lädt einen Fall und prüft Eigentümerschaft.
-
-    Args:
-        case_id: UUID-String des Falls.
-        current_user: Authentifizierter Nutzer.
-        db: Datenbankverbindung.
-
-    Returns:
-        Case: Das geladene Fall-Objekt.
-
-    Raises:
-        HTTPException 404: Ungültige UUID, Fall nicht gefunden oder Fremdfall.
-    """
-    try:
-        case_uuid = uuid.UUID(case_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Fall nicht gefunden.")
-
-    case = (
-        db.query(Case)
-        .filter(Case.id == case_uuid, Case.user_id == current_user.id)
-        .first()
-    )
-    if not case:
-        raise HTTPException(status_code=404, detail="Fall nicht gefunden.")
-
-    return case
 
 
 def _delete_from_storage(case: Case) -> None:

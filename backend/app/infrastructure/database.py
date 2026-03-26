@@ -5,22 +5,25 @@ Stellt eine synchrone DB-Session via FastAPI Depends() bereit.
 Erwartet DATABASE_URL in den Umgebungsvariablen (z.B. postgresql://user:pass@host/db).
 """
 
+# stdlib
 import logging
 from contextlib import contextmanager
 from typing import Generator
 
-from sqlalchemy import create_engine, text
+# third-party
+from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
-logger = logging.getLogger(__name__)
-
+# local
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 _engine = None
 _SessionLocal = None
 
 
-def _get_engine():
+def _get_engine() -> Engine:
     """Lazy-Singleton für die DB-Engine (einmal pro Prozess erstellt)."""
     global _engine, _SessionLocal
     if _engine is None:
@@ -86,7 +89,7 @@ def create_all_tables() -> None:
     _run_column_migrations(engine)
 
 
-def _run_column_migrations(engine) -> None:
+def _run_column_migrations(engine: Engine) -> None:
     """
     Fügt fehlende Spalten zu bestehenden Tabellen hinzu (idempotent).
     Wird bei jedem App-Start ausgeführt – keine Aktion wenn Spalte existiert.

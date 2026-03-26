@@ -14,7 +14,7 @@ Tabellen:
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
@@ -58,7 +58,7 @@ class User(Base):
     )
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     accepted_terms: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     # Profil-Daten (US-7.3) – nullable für Rückwärtskompatibilität
     first_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
@@ -130,9 +130,9 @@ class Case(Base):
     # US-9.1: Generisches Streitparteien-Modell (ersetzt network_operator in extracted_data)
     opponent_category: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     opponent_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
     user: Mapped["User"] = relationship("User", back_populates="cases")
@@ -195,7 +195,7 @@ class Document(Base):
     document_type: Mapped[str] = mapped_column(String(50), default="UNKNOWN")
     ocr_status: Mapped[str] = mapped_column(String(30), default="pending")
     masked_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     case: Mapped["Case"] = relationship("Case", back_populates="documents")
 
@@ -303,9 +303,9 @@ class MobileUploadToken(Base):
         ForeignKey("cases.id", ondelete="CASCADE"), index=True
     )
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     def __repr__(self) -> str:
         return f"<MobileUploadToken(id={self.id!s:.8}, used={self.used}, expires_at={self.expires_at})>"
@@ -375,9 +375,9 @@ class PasswordResetToken(Base):
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     def __repr__(self) -> str:
         return f"<PasswordResetToken(id={self.id!s:.8}, used={self.used}, expires_at={self.expires_at})>"

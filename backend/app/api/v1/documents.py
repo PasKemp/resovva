@@ -23,8 +23,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Up
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import CurrentUser
-from app.domain.models.db import Case, Document
+from app.api.dependencies import CurrentUser, get_owned_case
+from app.domain.models.db import Document
 from app.infrastructure.database import get_db
 from app.infrastructure.storage import get_storage
 from app.workers.ocr_worker import run_ocr
@@ -101,37 +101,6 @@ def _detect_mime(header: bytes) -> Optional[tuple[str, str]]:
     return None
 
 
-def _get_owned_case(case_id: str, current_user, db: Session) -> Case:
-    """
-    Lädt den Fall und prüft Eigentümerschaft.
-
-    Args:
-        case_id: UUID-String des Falls.
-        current_user: Authentifizierter Nutzer.
-        db: Datenbankverbindung.
-
-    Returns:
-        Case: Das geladene Fall-Objekt.
-
-    Raises:
-        HTTPException 404: Ungültige UUID, Fall nicht gefunden oder Fremdfall.
-    """
-    try:
-        case_uuid = uuid.UUID(case_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Fall nicht gefunden.")
-
-    case = (
-        db.query(Case)
-        .filter(Case.id == case_uuid, Case.user_id == current_user.id)
-        .first()
-    )
-    if not case:
-        raise HTTPException(status_code=404, detail="Fall nicht gefunden.")
-
-    return case
-
-
 # ── POST /cases/{case_id}/documents ──────────────────────────────────────────
 
 
@@ -164,7 +133,7 @@ async def upload_document(
         HTTPException 415: Nicht unterstütztes Dateiformat.
         HTTPException 500: Storage-Fehler.
     """
-    case = _get_owned_case(case_id, current_user, db)
+    case = get_owned_case(case_id, current_user, db)
 
     raw = await file.read()
 
@@ -235,7 +204,7 @@ def list_documents(
     Returns:
         DocumentListResponse: Liste aller Dokumente mit OCR-Status.
     """
-    case = _get_owned_case(case_id, current_user, db)
+    case = get_owned_case(case_id, current_user, db)
 
     return DocumentListResponse(
         documents=[
@@ -280,7 +249,7 @@ def delete_document(
     Raises:
         HTTPException 404: Fall oder Dokument nicht gefunden.
     """
-    case = _get_owned_case(case_id, current_user, db)
+    case = get_owned_case(case_id, current_user, db)
 
     try:
         doc_uuid = uuid.UUID(document_id)
