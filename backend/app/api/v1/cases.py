@@ -272,6 +272,7 @@ async def start_analysis(
     current_user: CurrentUser,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    force: bool = False,
 ) -> CaseAnalyzeResponse:
     """
     Startet die KI-Analyse asynchron als BackgroundTask (Epic 3).
@@ -279,9 +280,12 @@ async def start_analysis(
     Voraussetzung: ≥1 Dokument, alle OCR abgeschlossen.
     Nach Abschluss: case.status = WAITING_FOR_USER (pollt Frontend via /analysis/result).
 
+    Mit force=true wird eine bereits abgeschlossene Analyse neu gestartet (explizites Re-Run).
+    Ohne force=true wird 409 zurückgegeben wenn der Fall bereits analysiert wurde.
+
     Raises:
         HTTPException 422: Keine Dokumente.
-        HTTPException 409: OCR noch nicht abgeschlossen.
+        HTTPException 409: OCR noch nicht abgeschlossen ODER Analyse bereits abgeschlossen (ohne force).
         HTTPException 404: Fall nicht gefunden.
     """
     case = get_owned_case(case_id, current_user, db)
@@ -301,13 +305,24 @@ async def start_analysis(
             detail=f"{len(in_progress)} Dokument(e) noch in Verarbeitung. Bitte warten.",
         )
 
+    # Status-Guard: Analyse nur starten wenn Fall noch im DRAFT-Status ist
+    # oder wenn explizit force=True übergeben wird (manuelles Re-Run durch Nutzer).
+    # Verhindert versehentliche Doppel-Analysen die bereits vorhandene Ergebnisse überschreiben.
+    current_data = case.extracted_data or {}
+    has_error = bool(current_data.get("error"))
+    if not force and case.status != "DRAFT" and not has_error:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Analyse bereits abgeschlossen (Status: {case.status}). Nutze GET /extraction-result.",
+        )
+
     # Vorheriges Ergebnis löschen, damit das Frontend während der neuen Analyse
     # eine 404 bekommt (statt sofort das alte Fehler-/Ergebnis-Flag zu sehen).
     # Leeres Dict statt None: extracted_data ist NOT NULL (Mapped[dict]).
     case.extracted_data = {}
     db.commit()
 
-    logger.info("Analyse gestartet: Fall %s", case_id)
+    logger.info("Analyse gestartet: Fall %s (force=%s)", case_id, force)
     background_tasks.add_task(_run_analysis_background, case_id)
 
     return CaseAnalyzeResponse(

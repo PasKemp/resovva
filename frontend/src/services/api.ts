@@ -238,10 +238,11 @@ export const caseStatusApi = {
 // ── Case Analyze (Epic 2 → Epic 3 Brücke) ─────────────────────────────────────
 
 export const caseAnalyzeApi = {
-  start: (caseId: string) =>
-    apiFetch<{ status: string; message: string }>(`/api/v1/cases/${caseId}/analyze`, {
-      method: "POST",
-    }),
+  start: (caseId: string, force = false) =>
+    apiFetch<{ status: string; message: string }>(
+      `/api/v1/cases/${caseId}/analyze${force ? "?force=true" : ""}`,
+      { method: "POST" },
+    ),
 };
 
 // ── Analysis (Epic 3) ─────────────────────────────────────────────────────────

@@ -11,6 +11,10 @@ import type { AnalysisResultResponse, DocumentListItem } from "../../../services
 import type { ExtractionResult, ExtractionField, OpponentCategory } from "../../../types";
 import { CATEGORY_FIELDS, FIELD_LABELS_MAP } from "../../../constants/categoryFields";
 
+// Session-persistenter Summary-Cache: überlebt AnalysisStep-Unmount/Remount im selben Browser-Tab.
+// Key: "${caseId}:${documentId}"
+const summaryCacheMap = new Map<string, string>();
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Step 2 — KI-Analyse & Datenschutz
 //
@@ -35,6 +39,8 @@ interface AnalysisStepProps {
   onActionChange?:     (cfg: { label: string; disabled: boolean; handler: () => void }) => void;
   /** Wird aufgerufen, sobald die KI-Analyse gestartet wird (für Re-Run-Schutz). */
   onAnalysisStarted?:  () => void;
+  /** Von CaseFlow inkrementiert wenn Nutzer neues Dokument hochlädt + Reset bestätigt. */
+  forceRefresh?:       number;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -273,6 +279,8 @@ interface RightPanelProps {
   onOpponentChange: (cat: OpponentCategory, name: string) => void;
   onUploadMore:     () => void;
   onRerunRequest:   () => void;
+  dataPreloaded:    boolean;
+  isDirty:          boolean;
 }
 
 const RightPanel: React.FC<RightPanelProps> = ({
@@ -280,6 +288,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
   extraction, docs, fieldValues,
   reviewFields, autoFields,
   onFieldChange, onOpponentChange, onUploadMore, onRerunRequest,
+  dataPreloaded, isDirty,
 }) => {
   const [expandAuto, setExpandAuto] = useState(false);
 
@@ -302,6 +311,16 @@ const RightPanel: React.FC<RightPanelProps> = ({
         <p style={{ fontFamily: typography.sans, fontSize: 14, fontWeight: 700, color: colors.dark }}>
           Erkannte Daten bestätigen
         </p>
+        {phase === "review" && dataPreloaded && !isDirty && (
+          <p style={{ fontFamily: typography.sans, fontSize: 11, color: "#15803D", marginTop: 4, margin: "4px 0 0" }}>
+            ✓ Daten geladen – keine neue KI-Analyse nötig
+          </p>
+        )}
+        {phase === "review" && isDirty && (
+          <p style={{ fontFamily: typography.sans, fontSize: 11, color: colors.orange, marginTop: 4, margin: "4px 0 0" }}>
+            ● Änderungen werden beim Weiter gespeichert
+          </p>
+        )}
       </div>
 
       {/* Scrollable form */}
@@ -505,6 +524,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
  */
 export const AnalysisStep: React.FC<AnalysisStepProps> = ({
   caseId, onNext, onBack, docs, selectedDoc, onActionChange, onAnalysisStarted,
+  forceRefresh = 0,
 }) => {
   const [phase,           setPhase]          = useState<Phase>("loading");
   const [extraction,      setExtraction]      = useState<ExtractionResult | null>(null);
@@ -517,7 +537,8 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
   const [error,           setError]           = useState<string | null>(null);
   const [summaries,       setSummaries]       = useState<Record<string, string>>({});
   const [summaryLoading,  setSummaryLoading]  = useState<Record<string, boolean>>({});
-  const summaryRequestedRef = useRef(new Set<string>());
+  const [dataPreloaded,   setDataPreloaded]   = useState(false);
+  const [isDirty,         setIsDirty]         = useState(false);
   const [showRerunConfirm, setShowRerunConfirm] = useState(false);
   const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -549,43 +570,74 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
     initExtraction(r);
   }, [initExtraction]);
 
-  // Zusammenfassungen im Hintergrund für ALLE Dokumente laden
+  // Zusammenfassungen im Hintergrund für ALLE Dokumente laden (modul-level Cache verhindert Re-Requests bei Remount)
   useEffect(() => {
     docs.forEach(doc => {
       if (!doc.masked_text_preview || doc.masked_text_preview.length < 600) return;
-      const id = doc.document_id;
-      
-      // Bereits angefragt oder fertig?
-      if (summaryRequestedRef.current.has(id)) return;
-      
-      // Request markieren und Ladezustand setzen
-      summaryRequestedRef.current.add(id);
+      const id  = doc.document_id;
+      const key = `${caseId}:${id}`;
+
+      // Bereits im Modul-Cache? → direkt setzen, kein API-Call
+      if (summaryCacheMap.has(key)) {
+        setSummaries(prev => ({ ...prev, [id]: summaryCacheMap.get(key)! }));
+        return;
+      }
+
+      // Bereits lädt in diesem Mount-Zyklus?
+      if (summaryLoading[id]) return;
+
       setSummaryLoading(prev => ({ ...prev, [id]: true }));
-      
       documentsApi.summarize(caseId, id)
         .then(r => {
-          setSummaries(prev => ({ ...prev, [id]: r.summary ?? "" }));
+          const text = r.summary ?? "";
+          summaryCacheMap.set(key, text);
+          setSummaries(prev => ({ ...prev, [id]: text }));
         })
-        .catch(() => {})
-        .finally(() => {
-          setSummaryLoading(prev => ({ ...prev, [id]: false }));
-        });
+        .catch(() => { summaryCacheMap.set(key, ""); }) // Fehler cachen um Retry-Loop zu verhindern
+        .finally(() => setSummaryLoading(prev => ({ ...prev, [id]: false })));
     });
-  }, [caseId, docs]);
+  }, [caseId, docs]); // summaryLoading bewusst nicht in Deps → verhindert Feedback-Loop
 
   // On mount: check if analysis already done (restore "review" without re-running)
+  // forceRefresh > 0 signalisiert: neue Dokumente hochgeladen → Cache invalidieren, zurück zu "ocr"
   useEffect(() => {
+    if (forceRefresh > 0) {
+      for (const key of summaryCacheMap.keys()) {
+        if (key.startsWith(`${caseId}:`)) summaryCacheMap.delete(key);
+      }
+      setSummaries({});
+      setSummaryLoading({});
+      setExtraction(null);
+      setFieldValues({});
+      setDataPreloaded(false);
+      setIsDirty(false);
+      setPhase("ocr");
+      return;
+    }
+
     extractionApi.getFields(caseId)
-      .then(r => { initExtraction(r); setPhase("review"); })
+      .then(r => {
+        initExtraction(r);
+        setDataPreloaded(true);
+        setIsDirty(false);
+        setPhase("review");
+      })
       .catch(() => {
         analysisApi.result(caseId)
           .then(r => {
-            if (r.extracted_data) { buildLegacy(r); setPhase("review"); }
-            else { setPhase("ocr"); }
+            if (r.extracted_data) {
+              buildLegacy(r);
+              setDataPreloaded(true);
+              setIsDirty(false);
+              setPhase("review");
+            } else {
+              setDataPreloaded(false);
+              setPhase("ocr");
+            }
           })
-          .catch(() => setPhase("ocr"));
+          .catch(() => { setDataPreloaded(false); setPhase("ocr"); });
       });
-  }, [caseId, initExtraction, buildLegacy]);
+  }, [caseId, forceRefresh, initExtraction, buildLegacy]);
 
   // Poll for analysis result
   useEffect(() => {
@@ -622,21 +674,56 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
   const canConfirm     = phase === "review" && opponentReady &&
     reviewFields.every(f => (fieldValues[f.key] ?? "").trim() !== "");
 
-  const handleStart = useCallback(async () => {
+  const handleStart = useCallback(async (options?: { force?: boolean }) => {
+    const isForced = options?.force ?? false;
+
+    // Defensiver Pre-Check (nur bei normalem Start, nicht bei explizitem Re-Run):
+    // Falls Extraktionsdaten bereits vorhanden sind, direkt zur Review-Phase wechseln
+    // ohne POST /analyze aufzurufen. Verhindert versehentliche Doppel-Analysen.
+    if (!isForced) {
+      try {
+        const existing = await extractionApi.getFields(caseId);
+        initExtraction(existing);
+        setDataPreloaded(true);
+        setIsDirty(false);
+        setPhase("review");
+        onAnalysisStarted?.();
+        return;
+      } catch {
+        // 404 → Daten existieren noch nicht → normal fortfahren mit POST /analyze
+      }
+    }
+
     setStarting(true);
     setError(null);
     try {
-      await caseAnalyzeApi.start(caseId);
+      await caseAnalyzeApi.start(caseId, isForced);
       setPhase("analyzing");
       onAnalysisStarted?.();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("409")) { setPhase("analyzing"); onAnalysisStarted?.(); }
-      else setError(`Analyse konnte nicht gestartet werden: ${msg}`);
+      if (msg.includes("409")) {
+        // 409 kann bedeuten: OCR noch in Arbeit ODER Analyse bereits abgeschlossen
+        // → versuche vorhandene Daten zu laden bevor wir Polling starten
+        try {
+          const existing = await extractionApi.getFields(caseId);
+          initExtraction(existing);
+          setDataPreloaded(true);
+          setIsDirty(false);
+          setPhase("review");
+          onAnalysisStarted?.();
+        } catch {
+          // Daten noch nicht da (OCR läuft noch) → polling starten
+          setPhase("analyzing");
+          onAnalysisStarted?.();
+        }
+      } else {
+        setError(`Analyse konnte nicht gestartet werden: ${msg}`);
+      }
     } finally {
       setStarting(false);
     }
-  }, [caseId, onAnalysisStarted]);
+  }, [caseId, onAnalysisStarted, initExtraction]);
 
   const handleConfirm = useCallback(async () => {
     if (confirmingRef.current) return; // sofortiger Lock gegen Mehrfachklick
@@ -644,6 +731,13 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
     setConfirming(true);
     setError(null);
     try {
+      // GUARD: Daten vom Server geladen + Nutzer hat nichts geändert → direkt weiter, kein API-Call
+      if (dataPreloaded && !isDirty) {
+        confirmingRef.current = false;
+        onNext();
+        return;
+      }
+
       const data: Record<string, unknown> = { opponent_category: oppCat, opponent_name: oppName || null };
       for (const [k, v] of Object.entries(fieldValues)) {
         data[k] = k === "dispute_amount" ? (v ? parseFloat(v) || null : null) : (v || null);
@@ -656,15 +750,19 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
         opponent_category: oppCat,
         opponent_name:     oppName || null,
       });
+      setDataPreloaded(true);
+      setIsDirty(false);
       onNext();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      
+
       // Fehler 409 bedeutet, dass der Status serverseitig bereits fortgeschritten ist
       // (z.B. user ist zurückgesprungen und klickt erneut auf "Bestätigen").
       // In diesem Fall dürfen wir den User einfach weiterlassen, ohne die Analyse neu zu erzwingen!
       if (msg.includes("409")) {
         confirmingRef.current = false;
+        setDataPreloaded(true);
+        setIsDirty(false);
         onNext();
         return;
       }
@@ -674,7 +772,7 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
     } finally {
       setConfirming(false);
     }
-  }, [caseId, oppCat, oppName, fieldValues, onNext]);
+  }, [caseId, oppCat, oppName, fieldValues, onNext, dataPreloaded, isDirty]);
 
   // Header-Button-State nach oben kommunizieren
   useEffect(() => {
@@ -717,7 +815,7 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
             <Button variant="outline" onClick={() => setShowRerunConfirm(false)}>Abbrechen</Button>
-            <Button onClick={() => { setShowRerunConfirm(false); handleStart(); }}>Ja, neu analysieren</Button>
+            <Button onClick={() => { setShowRerunConfirm(false); handleStart({ force: true }); }}>Ja, neu analysieren</Button>
           </div>
         </div>
       </div>
@@ -753,10 +851,12 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
         fieldValues={fieldValues}
         reviewFields={reviewFields}
         autoFields={autoFields}
-        onFieldChange={(k, v) => setFieldValues(p => ({ ...p, [k]: v }))}
-        onOpponentChange={(cat, name) => { setOppCat(cat); setOppName(name); }}
+        onFieldChange={(k, v) => { setFieldValues(p => ({ ...p, [k]: v })); setIsDirty(true); }}
+        onOpponentChange={(cat, name) => { setOppCat(cat); setOppName(name); setIsDirty(true); }}
         onUploadMore={onBack}
         onRerunRequest={() => setShowRerunConfirm(true)}
+        dataPreloaded={dataPreloaded}
+        isDirty={isDirty}
       />
     </div>
     </>

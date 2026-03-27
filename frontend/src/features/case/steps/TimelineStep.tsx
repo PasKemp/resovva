@@ -281,6 +281,7 @@ export const TimelineStep: React.FC<TimelineStepProps> = ({ caseId, onNext, onBa
   const [showAddModal,   setShowAddModal]   = useState(false);
   const [editTarget,     setEditTarget]     = useState<TimelineEvent | null>(null);
   const [error,          setError]          = useState<string | null>(null);
+  const [isDirty,        setIsDirty]        = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Polling-Logik
@@ -321,10 +322,12 @@ export const TimelineStep: React.FC<TimelineStepProps> = ({ caseId, onNext, onBa
       });
     });
     if (timelineStatus === "empty") setTimelineStatus("ready");
+    setIsDirty(true);
   }, [timelineStatus]);
 
   const handleDeleteEvent = useCallback(async (id: string) => {
     setEvents(prev => prev.filter(e => e.event_id !== id));
+    setIsDirty(true);
     try {
       await timelineApi.deleteEvent(caseId, id);
     } catch {
@@ -336,6 +339,7 @@ export const TimelineStep: React.FC<TimelineStepProps> = ({ caseId, onNext, onBa
     if (!editTarget) return;
     const updated = await timelineApi.updateEvent(caseId, editTarget.event_id, payload);
     setEvents(prev => prev.map(e => e.event_id === updated.event_id ? updated : e));
+    setIsDirty(true);
   }, [caseId, editTarget]);
 
   const isBuilding = timelineStatus === "building";
@@ -361,7 +365,27 @@ export const TimelineStep: React.FC<TimelineStepProps> = ({ caseId, onNext, onBa
       <Card style={{ marginBottom: 20 }}>
         {/* ── Header mit Titel + Add-Button ── */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-          <h3 style={{ ...textStyles.h3, margin: 0 }}>3. Der Rote Faden</h3>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <h3 style={{ ...textStyles.h3, margin: 0 }}>3. Der Rote Faden</h3>
+            {isDirty && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, fontFamily: typography.sans,
+                background: "#FFF7ED", color: colors.orange,
+                padding: "2px 8px", borderRadius: 50, border: "1px solid #FED7AA",
+              }}>
+                ● Bearbeitet
+              </span>
+            )}
+            {!isDirty && !isBuilding && events.length > 0 && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, fontFamily: typography.sans,
+                background: "#F0FDF4", color: "#15803D",
+                padding: "2px 8px", borderRadius: 50, border: "1px solid #BBF7D0",
+              }}>
+                ✓ Daten geladen
+              </span>
+            )}
+          </div>
           {!isBuilding && (
             <Button size="sm" variant="outline" onClick={() => setShowAddModal(true)}>
               <Icon name="plus" size={13} color={colors.mid} /> Ereignis hinzufügen

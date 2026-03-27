@@ -256,6 +256,7 @@ export const CaseFlow = ({
   const [sidebarOpen,     setSidebarOpen]     = useState(true);
   const [analysisStarted, setAnalysisStarted] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
+  const [forceRefresh,    setForceRefresh]    = useState(0);
 
   const step1ActionRef  = useRef<() => void>(() => {});
   const hasCreatedRef   = useRef(false);
@@ -332,6 +333,7 @@ export const CaseFlow = ({
   const confirmReset = () => {
     setShowResetDialog(false);
     setAnalysisStarted(false);
+    setForceRefresh(n => n + 1); // Signalisiert AnalysisStep: Cache invalidieren, zurück zu "ocr"
     resolveResetRef.current?.(true);
     resolveResetRef.current = null;
   };
@@ -422,6 +424,7 @@ export const CaseFlow = ({
               docs={docs}
               selectedDoc={selectedDoc}
               onAnalysisStarted={() => setAnalysisStarted(true)}
+              forceRefresh={forceRefresh}
               onActionChange={cfg => {
                 step1ActionRef.current = cfg.handler;
                 setStep1Btn({ label: cfg.label, disabled: cfg.disabled });
