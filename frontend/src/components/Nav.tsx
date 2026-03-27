@@ -181,8 +181,8 @@ export const Nav = ({ page, setPage, loggedIn, onLogout }: NavProps) => {
     <nav style={{
       background: colors.white,
       borderBottom: `1px solid ${colors.border}`,
-      padding: "0 64px",
-      height: 64,               // US-7.2: 60 → 64px
+      padding: "0 40px",
+      height: 64,
       display: "flex",
       alignItems: "center",
       justifyContent: "space-between",
