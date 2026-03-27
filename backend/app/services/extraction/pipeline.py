@@ -114,26 +114,32 @@ def _run_pipeline(doc: Document, db: Session) -> None:
 
     # Stufe 1: Lokale pypdf-Extraktion (nur für PDFs sinnvoll)
     local_result: Optional[LocalExtractionResult] = None
-    if ext == "pdf":
-        try:
-            local_result = extract_text_local(raw_bytes)
-        except ValueError as exc:
-            logger.warning("Lokale Extraktion fehlgeschlagen (%s): %s", doc.id, exc)
-
-    # Routing-Entscheidung
-    fallback_needed, reason = router.route(ext, local_result)
-
-    if not fallback_needed and local_result:
-        raw_text = local_result.text
-        method = "pypdf"
-        logger.info("pypdf ausreichend für %s: %s", doc.id, reason)
+    
+    if ext == "txt":
+        raw_text = raw_bytes.decode("utf-8", errors="replace")
+        method = "text"
+        logger.info("Reiner Text für %s erkannt (OCR übersprungen)", doc.id)
     else:
-        logger.info("LlamaParse-Fallback für %s: %s", doc.id, reason)
-        doc.ocr_status = "llama_parse_fallback"
-        db.commit()
+        if ext == "pdf":
+            try:
+                local_result = extract_text_local(raw_bytes)
+            except ValueError as exc:
+                logger.warning("Lokale Extraktion fehlgeschlagen (%s): %s", doc.id, exc)
 
-        raw_text = _run_llamaparse(doc, db, raw_bytes, settings)
-        method = "llamaparse"
+        # Routing-Entscheidung
+        fallback_needed, reason = router.route(ext, local_result)
+
+        if not fallback_needed and local_result:
+            raw_text = local_result.text
+            method = "pypdf"
+            logger.info("pypdf ausreichend für %s: %s", doc.id, reason)
+        else:
+            logger.info("LlamaParse-Fallback für %s: %s", doc.id, reason)
+            doc.ocr_status = "llama_parse_fallback"
+            db.commit()
+
+            raw_text = _run_llamaparse(doc, db, raw_bytes, settings)
+            method = "llamaparse"
 
     # Maskierung
     doc.ocr_status = "masking"

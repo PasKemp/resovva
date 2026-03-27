@@ -92,9 +92,15 @@ export default function App() {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: colors.bg }}>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", background: colors.bg }}>
       <Nav page={page} setPage={setPage} loggedIn={loggedIn} onLogout={handleLogout} />
-      <main>{renderScreen()}</main>
+      <main style={{
+        flex: 1, minHeight: 0,
+        display: "flex", flexDirection: "column",
+        overflow: page === "case" ? "hidden" : "auto",
+      }}>
+        {renderScreen()}
+      </main>
     </div>
   );
 }

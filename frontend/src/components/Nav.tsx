@@ -9,9 +9,9 @@ import type { Page } from "../types";
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface NavProps {
-  page:      Page;
-  setPage:   (p: Page) => void;
-  loggedIn:  boolean;
+  page: Page;
+  setPage: (p: Page) => void;
+  loggedIn: boolean;
   onLogout?: () => void;
 }
 
@@ -24,26 +24,15 @@ const PRIVATE_NAV_LINKS = ["Dashboard", "Hilfe"] as const;
 const Logo = ({ onClick }: { onClick: () => void }) => (
   <div
     onClick={onClick}
-    style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }}
+    style={{ display: "flex", alignItems: "center", cursor: "pointer" }}
     role="link"
     aria-label="Resovva Home"
   >
-    <div style={{
-      width: 32, height: 32,
-      background: colors.orange,
-      borderRadius: 8,
-      display: "flex", alignItems: "center", justifyContent: "center",
-    }}>
-      <Icon name="scale" size={16} color="#fff" />
-    </div>
-    <span style={{
-      fontFamily: "'DM Serif Display', Georgia, serif",
-      fontSize: 22,
-      color: colors.dark,
-      letterSpacing: "-0.01em",
-    }}>
-      Resovva
-    </span>
+    <img
+      src="/Resovva_Logo_white.png"
+      alt="Resovva Logo"
+      style={{ height: 50, width: "auto" }}
+    />
   </div>
 );
 
@@ -53,16 +42,16 @@ const NavPill = ({
   <button
     onClick={onClick}
     style={{
-      background:   active ? colors.orangeLight : "transparent",
-      border:       `1.5px solid ${active ? colors.orange : colors.border}`,
+      background: active ? colors.orangeLight : "transparent",
+      border: `1.5px solid ${active ? colors.orange : colors.border}`,
       borderRadius: 50,
-      padding:      "8px 22px",          // US-7.2: mehr Padding
-      fontSize:     14,                  // US-7.2: größer
-      fontWeight:   600,
-      fontFamily:   typography.sans,
-      color:        active ? colors.orange : colors.mid,
-      cursor:       "pointer",
-      transition:   "all .18s",
+      padding: "8px 22px",          // US-7.2: mehr Padding
+      fontSize: 14,                  // US-7.2: größer
+      fontWeight: 600,
+      fontFamily: typography.sans,
+      color: active ? colors.orange : colors.mid,
+      cursor: "pointer",
+      transition: "all .18s",
     }}
   >
     {label}
@@ -75,7 +64,7 @@ const AvatarDropdown = ({
   setPage,
   onLogout,
 }: {
-  setPage:  (p: Page) => void;
+  setPage: (p: Page) => void;
   onLogout: () => void;
 }) => {
   const [open, setOpen] = useState(false);
@@ -96,20 +85,20 @@ const AvatarDropdown = ({
         onClick={() => setOpen(o => !o)}
         title="Profil"
         style={{
-          width:          36,
-          height:         36,
-          background:     colors.orange,
-          borderRadius:   "50%",
-          display:        "flex",
-          alignItems:     "center",
+          width: 36,
+          height: 36,
+          background: colors.orange,
+          borderRadius: "50%",
+          display: "flex",
+          alignItems: "center",
           justifyContent: "center",
-          cursor:         "pointer",
-          fontFamily:     typography.sans,
-          fontSize:       13,
-          fontWeight:     700,
-          color:          "#F5EFE6",
-          border:         `2px solid ${open ? colors.orangeHover : "transparent"}`,
-          transition:     "border-color .15s",
+          cursor: "pointer",
+          fontFamily: typography.sans,
+          fontSize: 13,
+          fontWeight: 700,
+          color: "#F5EFE6",
+          border: `2px solid ${open ? colors.orangeHover : "transparent"}`,
+          transition: "border-color .15s",
         }}
       >
         P
@@ -117,33 +106,33 @@ const AvatarDropdown = ({
 
       {open && (
         <div style={{
-          position:     "absolute",
-          right:        0,
-          top:          "calc(100% + 8px)",
-          background:   colors.white,
-          border:       `1px solid ${colors.border}`,
+          position: "absolute",
+          right: 0,
+          top: "calc(100% + 8px)",
+          background: colors.white,
+          border: `1px solid ${colors.border}`,
           borderRadius: 12,
-          boxShadow:    "0 8px 32px rgba(0,0,0,.12)",
-          minWidth:     180,
-          zIndex:       500,
-          overflow:     "hidden",
+          boxShadow: "0 8px 32px rgba(0,0,0,.12)",
+          minWidth: 180,
+          zIndex: 500,
+          overflow: "hidden",
         }}>
           <button
             onClick={() => { setOpen(false); setPage("profile"); }}
             style={{
-              width:      "100%",
-              padding:    "12px 16px",
+              width: "100%",
+              padding: "12px 16px",
               background: "none",
-              border:     "none",
-              textAlign:  "left",
+              border: "none",
+              textAlign: "left",
               fontFamily: typography.sans,
-              fontSize:   14,
+              fontSize: 14,
               fontWeight: 500,
-              color:      colors.dark,
-              cursor:     "pointer",
-              display:    "flex",
+              color: colors.dark,
+              cursor: "pointer",
+              display: "flex",
               alignItems: "center",
-              gap:        10,
+              gap: 10,
               transition: "background .15s",
             }}
             onMouseEnter={e => (e.currentTarget.style.background = colors.bg)}
@@ -156,19 +145,19 @@ const AvatarDropdown = ({
           <button
             onClick={() => { setOpen(false); onLogout(); }}
             style={{
-              width:      "100%",
-              padding:    "12px 16px",
+              width: "100%",
+              padding: "12px 16px",
               background: "none",
-              border:     "none",
-              textAlign:  "left",
+              border: "none",
+              textAlign: "left",
               fontFamily: typography.sans,
-              fontSize:   14,
+              fontSize: 14,
               fontWeight: 500,
-              color:      colors.danger,
-              cursor:     "pointer",
-              display:    "flex",
+              color: colors.danger,
+              cursor: "pointer",
+              display: "flex",
               alignItems: "center",
-              gap:        10,
+              gap: 10,
               transition: "background .15s",
             }}
             onMouseEnter={e => (e.currentTarget.style.background = colors.dangerLight)}
@@ -190,16 +179,16 @@ export const Nav = ({ page, setPage, loggedIn, onLogout }: NavProps) => {
 
   return (
     <nav style={{
-      background:      colors.white,
-      borderBottom:    `1px solid ${colors.border}`,
-      padding:         "0 32px",
-      height:          64,               // US-7.2: 60 → 64px
-      display:         "flex",
-      alignItems:      "center",
-      justifyContent:  "space-between",
-      position:        "sticky",
-      top:             0,
-      zIndex:          200,
+      background: colors.white,
+      borderBottom: `1px solid ${colors.border}`,
+      padding: "0 64px",
+      height: 64,               // US-7.2: 60 → 64px
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      position: "sticky",
+      top: 0,
+      zIndex: 200,
     }}>
       {/* Left: logo + nav links */}
       <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
@@ -237,14 +226,14 @@ export const Nav = ({ page, setPage, loggedIn, onLogout }: NavProps) => {
         {!loggedIn && (
           <>
             <div style={{
-              background:   colors.bg,
-              border:       `1px solid ${colors.border}`,
+              background: colors.bg,
+              border: `1px solid ${colors.border}`,
               borderRadius: 50,
-              padding:      "8px 20px",     // US-7.2: größeres Padding
-              display:      "flex",
-              alignItems:   "center",
-              gap:          8,
-              width:        224,
+              padding: "8px 20px",     // US-7.2: größeres Padding
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              width: 224,
             }}>
               <Icon name="search" size={14} color={colors.muted} />
               <span style={{ ...textStyles.small, color: colors.muted }}>Fälle durchsuchen</span>
@@ -259,13 +248,7 @@ export const Nav = ({ page, setPage, loggedIn, onLogout }: NavProps) => {
         )}
 
         {loggedIn && (
-          <>
-            <Button onClick={() => setPage("case")} size="md">
-              <Icon name="plus" size={14} color="#fff" />
-              Neuer Fall
-            </Button>
-            <AvatarDropdown setPage={setPage} onLogout={handleLogout} />
-          </>
+          <AvatarDropdown setPage={setPage} onLogout={handleLogout} />
         )}
       </div>
     </nav>

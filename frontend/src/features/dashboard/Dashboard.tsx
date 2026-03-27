@@ -101,8 +101,15 @@ const CaseSidebar = ({
       </p>
     </div>
 
+    {/* Neuer Fall – prominenter Button oben */}
+    <div style={{ padding: "12px 12px 4px" }}>
+      <Button onClick={onNewCase} size="sm" style={{ width: "100%", justifyContent: "center" }}>
+        <Icon name="plus" size={13} color="#fff" /> Neuer Fall
+      </Button>
+    </div>
+
     {/* Case-Liste */}
-    <div style={{ flex: 1, padding: "8px 10px" }}>
+    <div style={{ flex: 1, padding: "4px 10px 8px" }}>
       {!loading && cases.length === 0 && (
         <p style={{ ...textStyles.small, color: colors.muted, textAlign: "center", padding: "24px 12px" }}>
           Noch keine Fälle vorhanden.
@@ -132,7 +139,7 @@ const CaseSidebar = ({
                 fontFamily: typography.sans,
                 fontSize:   13,
                 fontWeight: 600,
-                color:      isSelected ? colors.orange : colors.dark,
+                color:      colors.dark,
               }}>
                 Fall #{c.id}
               </span>
@@ -148,12 +155,6 @@ const CaseSidebar = ({
       })}
     </div>
 
-    {/* Neuer Fall – persistenter Button am Ende (US-7.5) */}
-    <div style={{ padding: 12, borderTop: `1px solid ${colors.border}` }}>
-      <Button onClick={onNewCase} size="sm" style={{ width: "100%", justifyContent: "center" }}>
-        <Icon name="plus" size={13} color="#fff" /> Neuer Fall
-      </Button>
-    </div>
   </div>
 );
 
@@ -184,14 +185,21 @@ const CasePreview = ({
       gap: 16, marginBottom: 24,
     }}>
       {([
-        { label: "Erstellt",      value: c.date },
-        { label: "Netzbetreiber", value: c.operator },
-        { label: "Dokumente",     value: `${c.documentCount} hochgeladen` },
-      ] as const).map(({ label, value }) => (
+        { label: "Erstellt",             value: c.date,                          icon: "activity" as const },
+        { label: "Anbieter / Gegenseite", value: c.operator,                     icon: "scale"    as const },
+        { label: "Dokumente",            value: `${c.documentCount} hochgeladen`, icon: "file"     as const },
+      ]).map(({ label, value, icon }) => (
         <div key={label} style={{
-          background: colors.bg, borderRadius: 10, padding: "12px 14px",
+          background: colors.white,
+          borderRadius: 10,
+          padding: "12px 14px",
+          boxShadow: "0 1px 4px rgba(0,0,0,.08)",
+          border: `1px solid ${colors.border}`,
         }}>
-          <p style={{ ...textStyles.label, marginBottom: 4 }}>{label}</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4 }}>
+            <Icon name={icon} size={12} color={colors.muted} />
+            <p style={{ ...textStyles.label, margin: 0 }}>{label}</p>
+          </div>
           <p style={{ ...textStyles.body, fontSize: 13, fontWeight: 600, color: colors.dark }}>
             {value}
           </p>
@@ -222,22 +230,30 @@ const CasePreview = ({
     </div>
 
     {/* Aktionen */}
-    <div style={{ display: "flex", gap: 10 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
       <Button variant="outline" size="sm" onClick={() => onOpen()}>
         <Icon name="file" size={13} color={colors.mid} /> Fall öffnen
       </Button>
       <button
         onClick={onDelete}
         style={{
-          background: "none", border: `1px solid ${colors.dangerBorder}`,
-          borderRadius: 8, padding: "6px 14px",
-          fontFamily: typography.sans, fontSize: 13,
-          color: colors.danger, cursor: "pointer",
-          display: "flex", alignItems: "center", gap: 6,
-          transition: "background .15s",
+          marginLeft:  "auto",
+          background:  "none",
+          border:      "none",
+          padding:     "6px 4px",
+          fontFamily:  typography.sans,
+          fontSize:    13,
+          fontWeight:  500,
+          color:       colors.danger,
+          cursor:      "pointer",
+          display:     "flex",
+          alignItems:  "center",
+          gap:         5,
+          opacity:     0.7,
+          transition:  "opacity .15s",
         }}
-        onMouseEnter={e => (e.currentTarget.style.background = colors.dangerLight)}
-        onMouseLeave={e => (e.currentTarget.style.background = "none")}
+        onMouseEnter={e => (e.currentTarget.style.opacity = "1")}
+        onMouseLeave={e => (e.currentTarget.style.opacity = "0.7")}
       >
         <Icon name="x" size={13} color={colors.danger} /> Löschen
       </button>
@@ -435,14 +451,6 @@ export const Dashboard = ({ openCase }: DashboardProps) => {
             <WelcomeCard onNewCase={handleNewCase} />
           )}
 
-          {/* Export-Leiste */}
-          {cases.length > 0 && (
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
-              <Button variant="outline" size="sm">
-                <Icon name="export" size={13} color={colors.mid} /> Export
-              </Button>
-            </div>
-          )}
         </div>
       </div>
     </>

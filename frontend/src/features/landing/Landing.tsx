@@ -20,13 +20,13 @@ const HOW_IT_WORKS = [
     delay: "0.05s",
   },
   {
-    step: "2", icon: "brain" as const,
+    step: "2", icon: "shield" as const,
     title: "Automatische Analyse",
-    desc:  "KI extrahiert relevante Daten und anonymisiert sensible Informationen.",
+    desc:  "Lokaler Schutz. Deine sensiblen Daten (z.B. IBAN) werden auf unseren Servern vor der KI-Analyse automatisch geschwärzt.",
     delay: "0.12s",
   },
   {
-    step: "3", icon: "file" as const,
+    step: "3", icon: "download" as const,
     title: "Dossier erhalten",
     desc:  "Erhalte ein rechtssicheres Dossier zum Download oder Versand an einen Anwalt.",
     delay: "0.20s",
@@ -37,7 +37,7 @@ const HOW_IT_WORKS = [
 
 const HeroIllustration = () => (
   <div style={{
-    background:    "linear-gradient(135deg, #F5F0E8 0%, #EDE8DC 100%)",
+    background:    "linear-gradient(135deg, #EEF4FF 0%, #E4F5F0 100%)",
     height:        290,
     display:       "flex",
     alignItems:    "center",
@@ -46,36 +46,59 @@ const HeroIllustration = () => (
     overflow:      "hidden",
   }}>
     <svg viewBox="0 0 320 240" style={{ width: "100%", height: "100%", padding: 24 }}>
-      {/* Background grid */}
-      {[40, 80, 120, 160, 200].map(y => (
-        <line key={y} x1="0" y1={y} x2="320" y2={y} stroke="#D4C9B0" strokeWidth=".5" strokeDasharray="4,4" />
-      ))}
-      {[60, 120, 180, 240].map(x => (
-        <line key={x} x1={x} y1="0" x2={x} y2="240" stroke="#D4C9B0" strokeWidth=".5" strokeDasharray="4,4" />
-      ))}
-      {/* Gauges */}
-      <circle cx="60"  cy="180" r="30" stroke="#8B7355" strokeWidth="2" fill="none" />
-      <path d="M40 190 A20 20 0 0 1 80 190" stroke={colors.orange} strokeWidth="3" fill="none" strokeLinecap="round" />
-      <circle cx="260" cy="190" r="25" stroke="#8B7355" strokeWidth="2" fill="none" />
-      <path d="M244 200 A16 16 0 0 1 276 200" stroke={colors.teal} strokeWidth="3" fill="none" strokeLinecap="round" />
-      {/* Connecting wires */}
-      <path d="M90 180 C120 180 120 100 160 100 C200 100 200 180 230 180" stroke="#8B7355" strokeWidth="1.5" fill="none" strokeDasharray="6,3" />
-      <path d="M160 100 L160 50" stroke="#8B7355" strokeWidth="1.5" fill="none" />
-      {/* Lightbulbs */}
-      <circle cx="100" cy="60" r="14" stroke="#8B7355" strokeWidth="1.5" fill="rgba(255,200,50,.3)" />
-      <line x1="100" y1="74" x2="100" y2="84" stroke="#8B7355" strokeWidth="1.5" />
-      <circle cx="220" cy="60" r="14" stroke="#8B7355" strokeWidth="1.5" fill="rgba(255,200,50,.12)" />
-      <line x1="220" y1="74" x2="220" y2="84" stroke="#8B7355" strokeWidth="1.5" />
-      {/* Person */}
-      <circle cx="160" cy="28" r="9" fill="#8B7355" />
-      <path d="M155 37 L155 65 L150 80 M165 37 L165 65 L170 80 M155 50 L165 50" stroke="#8B7355" strokeWidth="2" strokeLinecap="round" fill="none" />
-      <rect x="148" y="64" width="7" height="14" rx="2" fill="#3D2B1F" />
-      <rect x="163" y="64" width="7" height="14" rx="2" fill="#3D2B1F" />
-      {/* Balance scale */}
-      <line x1="160" y1="37" x2="160" y2="45" stroke="#5C4033" strokeWidth="1.5" />
-      <line x1="140" y1="42" x2="180" y2="42" stroke="#5C4033" strokeWidth="1.5" />
-      <line x1="140" y1="42" x2="140" y2="50" stroke="#5C4033" strokeWidth="1" />
-      <line x1="180" y1="42" x2="180" y2="50" stroke="#5C4033" strokeWidth="1" />
+      {/* Subtle dot grid */}
+      {[40, 80, 120, 160, 200].map(y =>
+        [40, 80, 120, 160, 200, 240, 280].map(x => (
+          <circle key={`${x}-${y}`} cx={x} cy={y} r="1.5" fill="#C8D8E8" />
+        ))
+      )}
+      {/* Outer glow ring */}
+      <circle cx="160" cy="120" r="88" stroke={colors.teal} strokeWidth="1" fill="none" strokeOpacity=".18" />
+      <circle cx="160" cy="120" r="72" stroke={colors.teal} strokeWidth="1" fill="none" strokeOpacity=".12" />
+      {/* Shield body */}
+      <path
+        d="M160 30 L208 52 L208 112 C208 148 184 174 160 184 C136 174 112 148 112 112 L112 52 Z"
+        fill={colors.teal}
+        fillOpacity=".12"
+        stroke={colors.teal}
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      {/* Shield inner accent */}
+      <path
+        d="M160 45 L198 63 L198 112 C198 142 178 164 160 172 C142 164 122 142 122 112 L122 63 Z"
+        fill={colors.teal}
+        fillOpacity=".08"
+        stroke={colors.teal}
+        strokeWidth="1"
+        strokeLinejoin="round"
+      />
+      {/* Lock body */}
+      <rect x="148" y="112" width="24" height="20" rx="3" fill={colors.teal} fillOpacity=".85" />
+      {/* Lock shackle */}
+      <path d="M153 112 L153 104 A7 7 0 0 1 167 104 L167 112" stroke={colors.teal} strokeWidth="2.5" fill="none" strokeLinecap="round" />
+      {/* Lock keyhole */}
+      <circle cx="160" cy="121" r="3" fill="#fff" fillOpacity=".9" />
+      <rect x="158.5" y="121" width="3" height="5" rx="1" fill="#fff" fillOpacity=".9" />
+      {/* Checkmark in upper shield */}
+      <path d="M150 88 L157 96 L172 78" stroke={colors.orange} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      {/* Floating data nodes */}
+      <circle cx="80"  cy="80"  r="6" fill={colors.orange} fillOpacity=".25" stroke={colors.orange} strokeWidth="1.5" />
+      <circle cx="240" cy="80"  r="6" fill={colors.teal}   fillOpacity=".25" stroke={colors.teal}   strokeWidth="1.5" />
+      <circle cx="72"  cy="150" r="4" fill={colors.teal}   fillOpacity=".3"  stroke={colors.teal}   strokeWidth="1" />
+      <circle cx="248" cy="155" r="4" fill={colors.orange} fillOpacity=".3"  stroke={colors.orange} strokeWidth="1" />
+      <circle cx="104" cy="188" r="3" fill={colors.teal}   fillOpacity=".4"  stroke={colors.teal}   strokeWidth="1" />
+      <circle cx="216" cy="188" r="3" fill={colors.orange} fillOpacity=".4"  stroke={colors.orange} strokeWidth="1" />
+      {/* Connector lines to shield */}
+      <line x1="86"  y1="83"  x2="114" y2="95"  stroke={colors.teal}   strokeWidth="1" strokeOpacity=".35" strokeDasharray="4,3" />
+      <line x1="234" y1="83"  x2="206" y2="95"  stroke={colors.orange} strokeWidth="1" strokeOpacity=".35" strokeDasharray="4,3" />
+      <line x1="76"  y1="146" x2="114" y2="130" stroke={colors.teal}   strokeWidth="1" strokeOpacity=".3"  strokeDasharray="4,3" />
+      <line x1="244" y1="151" x2="206" y2="130" stroke={colors.orange} strokeWidth="1" strokeOpacity=".3"  strokeDasharray="4,3" />
+      {/* DSGVO label badge */}
+      <rect x="126" y="192" width="68" height="22" rx="11" fill={colors.teal} fillOpacity=".15" stroke={colors.teal} strokeWidth="1" />
+      <text x="160" y="207" textAnchor="middle" fontSize="9" fontWeight="600" fill={colors.teal} fontFamily="'Plus Jakarta Sans', sans-serif">
+        DSGVO-konform
+      </text>
     </svg>
   </div>
 );
@@ -111,16 +134,17 @@ export const Landing = ({ setPage }: WithSetPage) => (
           <Button onClick={() => setPage("case")} size="lg">
             Jetzt Fall kostenlos prüfen
           </Button>
-          <Button variant="outline" size="lg">
+          <Button variant="ghost" size="lg">
             Mehr erfahren
           </Button>
         </div>
 
         <div style={{ display: "flex", gap: 22, flexWrap: "wrap" }}>
           {TRUST_BADGES.map(({ icon, label }) => (
-            <div key={label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <Icon name={icon} size={15} color={colors.teal} />
-              <span style={{ ...textStyles.label, color: colors.teal, textTransform: "none", letterSpacing: 0 }}>
+            <div key={label} style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <Icon name="shield" size={16} color={colors.teal} />
+              <Icon name={icon} size={18} color={colors.teal} />
+              <span style={{ ...textStyles.label, color: colors.teal, textTransform: "none", letterSpacing: 0, fontSize: 13 }}>
                 {label}
               </span>
             </div>
@@ -136,7 +160,7 @@ export const Landing = ({ setPage }: WithSetPage) => (
         <HeroIllustration />
         <div style={{ padding: "12px 16px", borderTop: `1px solid ${colors.border}` }}>
           <p style={{ ...textStyles.small, textAlign: "center", color: colors.muted }}>
-            Illustration: Waffengleichheit visualisiert – Nutzer gegen den Energie-Dschungel
+            KI-gestützte Analyse mit automatischem DSGVO-Schutz
           </p>
         </div>
       </Card>
@@ -159,7 +183,7 @@ export const Landing = ({ setPage }: WithSetPage) => (
             display:      "flex", alignItems: "center", justifyContent: "center",
             marginBottom: 18,
           }}>
-            <Icon name={icon} size={24} color={colors.orange} />   {/* US-7.2: 19 → 24px */}
+            <Icon name={icon} size={24} color={colors.teal} />   {/* US-7.2: 19 → 24px */}
           </div>
           <h3 style={{ ...textStyles.h3, fontSize: 16, marginBottom: 10 }}>
             {step}. {title}
@@ -178,7 +202,7 @@ export const Landing = ({ setPage }: WithSetPage) => (
         Kostenlos starten. Zahlen Sie nur, wenn das Dossier fertig ist.
       </p>
       <Button onClick={() => setPage("case")} size="lg">
-        Jetzt kostenlos beginnen&nbsp;
+        Jetzt Fall kostenlos prüfen&nbsp;
         <Icon name="arrow" size={16} color="#fff" />
       </Button>
     </div>

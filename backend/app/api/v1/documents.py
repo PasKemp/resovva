@@ -162,11 +162,23 @@ async def upload_document(
 
     mime_result = _detect_mime(raw[:8])
     if mime_result is None:
-        raise HTTPException(
-            status_code=415,
-            detail="Nicht unterstütztes Dateiformat. Erlaubt: PDF, JPEG, PNG.",
-        )
-    mime_type, ext = mime_result
+        filename_check = (file.filename or "").lower()
+        if filename_check.endswith(".txt"):
+            try:
+                raw.decode("utf-8")
+                mime_type, ext = "text/plain", "txt"
+            except UnicodeDecodeError:
+                raise HTTPException(
+                    status_code=415,
+                    detail="Textdatei ist kein gültiges UTF-8 Format.",
+                )
+        else:
+            raise HTTPException(
+                status_code=415,
+                detail="Nicht unterstütztes Dateiformat. Erlaubt: PDF, JPEG, PNG, TXT.",
+            )
+    else:
+        mime_type, ext = mime_result
 
     doc_id = uuid.uuid4()
     s3_key = f"{case.id}/{doc_id}.{ext}"

@@ -20,11 +20,13 @@ const COMPRESS_OPTIONS = {
 };
 
 interface UploadStepProps {
-  caseId:           string;
+  caseId:            string;
   /** Dokumentenliste vom Parent (CaseFlow pollt zentral). */
-  docs:             DocumentListItem[];
-  onNext:           () => void;
-  onCanNextChange?: (can: boolean) => void;
+  docs:              DocumentListItem[];
+  onNext:            () => void;
+  onCanNextChange?:  (can: boolean) => void;
+  /** Vor dem Upload aufrufen. Gibt false zurück → Upload abbrechen. */
+  onBeforeUpload?:   () => Promise<boolean>;
 }
 
 interface UploadedFile {
@@ -100,7 +102,7 @@ const FileRow: React.FC<{ file: UploadedFile; onRemove: (f: UploadedFile) => voi
  * Step 1: Dokument-Upload per Drag-Drop, Dateiauswahl oder QR-Code (Handy).
  * Dokumentenliste wird zentral von CaseFlow gepflegt und als `docs` übergeben.
  */
-export const UploadStep: React.FC<UploadStepProps> = ({ caseId, docs, onNext: _onNext, onCanNextChange }) => {
+export const UploadStep: React.FC<UploadStepProps> = ({ caseId, docs, onNext: _onNext, onCanNextChange, onBeforeUpload }) => {
   const [localFiles,   setLocalFiles]   = useState<UploadedFile[]>([]);
   const [dragging,     setDragging]     = useState(false);
   const [uploading,    setUploading]    = useState(false);
@@ -108,6 +110,10 @@ export const UploadStep: React.FC<UploadStepProps> = ({ caseId, docs, onNext: _o
   const [qrToken,      setQrToken]      = useState<string | null>(null);
   const [qrLoading,    setQrLoading]    = useState(false);
   const [qrUploadUrl,  setQrUploadUrl]  = useState<string | null>(null);
+
+  const [activeTab,    setActiveTab]    = useState<"file" | "text">("file");
+  const [textTitle,    setTextTitle]    = useState("");
+  const [textContent,  setTextContent]  = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -131,10 +137,19 @@ export const UploadStep: React.FC<UploadStepProps> = ({ caseId, docs, onNext: _o
 
   const handleFiles = useCallback(async (rawFiles: FileList | null) => {
     if (!rawFiles || rawFiles.length === 0) return;
+    // FileList vor dem ersten await in ein Array kopieren: die FileList ist ein
+    // live-Objekt — e.target.value = "" (synchron nach handleFiles-Aufruf) leert
+    // sie, bevor der await-Resumption-Punkt erreicht wird.
+    const files = Array.from(rawFiles);
+    // Guard: bei bereits gestarteter Analyse Dialog anzeigen
+    if (onBeforeUpload) {
+      const proceed = await onBeforeUpload();
+      if (!proceed) return;
+    }
     setError(null);
     setUploading(true);
 
-    for (const raw of Array.from(rawFiles)) {
+    for (const raw of files) {
       try {
         let fileToUpload: File = raw;
 
@@ -159,7 +174,21 @@ export const UploadStep: React.FC<UploadStepProps> = ({ caseId, docs, onNext: _o
     }
 
     setUploading(false);
-  }, [caseId]);
+  }, [caseId, onBeforeUpload]);
+
+  const handleTextUpload = useCallback(async () => {
+    if (!textContent.trim()) return;
+    const finalFileName = textTitle.trim() ? `${textTitle.trim()}.txt` : `E-Mail_Text_${Date.now()}.txt`;
+    const textFile = new File([textContent], finalFileName, { type: "text/plain" });
+
+    const dt = new DataTransfer();
+    dt.items.add(textFile);
+    await handleFiles(dt.files);
+
+    setTextContent("");
+    setTextTitle("");
+    setActiveTab("file");
+  }, [textContent, textTitle, handleFiles]);
 
   const handleShowQr = useCallback(async () => {
     setQrLoading(true);
@@ -190,68 +219,134 @@ export const UploadStep: React.FC<UploadStepProps> = ({ caseId, docs, onNext: _o
       <Card style={{ marginBottom: 20 }}>
         <h3 style={{ ...textStyles.h3, marginBottom: 20 }}>1. Upload & Mobile Scan</h3>
 
-        {/* ── Drop zone ── */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,.jpg,.jpeg,.png"
-          multiple
-          style={{ display: "none" }}
-          onChange={e => {
-            handleFiles(e.target.files);
-            e.target.value = "";
-          }}
-        />
-        <div
-          onDragOver={e  => { e.preventDefault(); setDragging(true); }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={e  => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}
-          onClick={() => fileInputRef.current?.click()}
-          style={{
-            border:         `2px dashed ${dragging ? colors.orange : colors.orange + "60"}`,
-            borderRadius:   14,
-            minHeight:      200,
-            padding:        "32px 24px",
-            display:        "flex",
-            flexDirection:  "column",
-            alignItems:     "center",
-            justifyContent: "center",
-            gap:            14,
-            background:     dragging ? colors.orangeLight : "#FFF8F5",
-            transition:     "all .2s ease",
-            cursor:         "pointer",
-            marginBottom:   20,
-          }}
-        >
-          <div style={{
-            width: 56, height: 56,
-            background:   colors.orangeLight,
-            borderRadius: 14,
-            display:      "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <Icon name="upload" size={26} color={colors.orange} />
-          </div>
-          <p style={{ ...textStyles.body, fontSize: 13, textAlign: "center", color: colors.mid }}>
-            {uploading ? "Wird hochgeladen…" : "Ziehe PDFs hierher oder klicke zum Hochladen"}
-          </p>
-          <p style={{ ...textStyles.small, textAlign: "center" }}>
-            PDF, JPG, PNG · max. 10 MB
-          </p>
-          <div style={{ display: "flex", gap: 10 }} onClick={e => e.stopPropagation()}>
-            <Button size="sm" onClick={handleShowQr} disabled={qrLoading}>
-              <Icon name="scan" size={13} color="#fff" />
-              {qrLoading ? " Lädt…" : " Mit dem Handy scannen"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-            >
-              Datei auswählen
-            </Button>
-          </div>
+        {/* ── Tabs ── */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+          <button
+            onClick={() => setActiveTab("file")}
+            style={{
+              flex: 1, padding: "10px 0",
+              background: activeTab === "file" ? colors.orangeLight : "transparent",
+              border: `1.5px solid ${activeTab === "file" ? colors.orange : colors.border}`,
+              borderRadius: 8, color: activeTab === "file" ? colors.orange : colors.mid,
+              fontWeight: 600, fontFamily: typography.sans, fontSize: 13, cursor: "pointer",
+            }}
+          >
+            📄 Dokument hochladen
+          </button>
+          <button
+            onClick={() => setActiveTab("text")}
+            style={{
+              flex: 1, padding: "10px 0",
+              background: activeTab === "text" ? colors.orangeLight : "transparent",
+              border: `1.5px solid ${activeTab === "text" ? colors.orange : colors.border}`,
+              borderRadius: 8, color: activeTab === "text" ? colors.orange : colors.mid,
+              fontWeight: 600, fontFamily: typography.sans, fontSize: 13, cursor: "pointer",
+            }}
+          >
+            ✉️ E-Mail / Text einfügen
+          </button>
         </div>
+
+        {activeTab === "file" ? (
+          <>
+            {/* ── Drop zone ── */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png"
+              multiple
+              style={{ display: "none" }}
+              onChange={e => {
+                handleFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <div
+              onDragOver={e  => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={e  => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                border:         `2px dashed ${dragging ? colors.orange : colors.orange + "60"}`,
+                borderRadius:   14,
+                minHeight:      200,
+                padding:        "32px 24px",
+                display:        "flex",
+                flexDirection:  "column",
+                alignItems:     "center",
+                justifyContent: "center",
+                gap:            14,
+                background:     dragging ? colors.orangeLight : "#FFF8F5",
+                transition:     "all .2s ease",
+                cursor:         "pointer",
+                marginBottom:   20,
+              }}
+            >
+              <div style={{
+                width: 56, height: 56,
+                background:   colors.orangeLight,
+                borderRadius: 14,
+                display:      "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <Icon name="upload" size={26} color={colors.orange} />
+              </div>
+              <p style={{ ...textStyles.body, fontSize: 13, textAlign: "center", color: colors.mid }}>
+                {uploading ? "Wird hochgeladen…" : "Ziehe PDFs hierher oder klicke zum Hochladen"}
+              </p>
+              <p style={{ ...textStyles.small, textAlign: "center" }}>
+                PDF, JPG, PNG · max. 10 MB
+              </p>
+              <div style={{ display: "flex", gap: 10 }} onClick={e => e.stopPropagation()}>
+                <Button size="sm" onClick={handleShowQr} disabled={qrLoading}>
+                  <Icon name="scan" size={13} color="#fff" />
+                  {qrLoading ? " Lädt…" : " Mit dem Handy scannen"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                >
+                  Datei auswählen
+                </Button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 20 }}>
+            <input
+              type="text"
+              placeholder="Titel, z.B. E-Mail vom 12.05."
+              value={textTitle}
+              onChange={e => setTextTitle(e.target.value)}
+              style={{
+                width: "100%", padding: "12px 14px", fontFamily: typography.sans, fontSize: 13,
+                border: `1.5px solid ${colors.border}`, borderRadius: 8, outline: "none",
+                background: colors.bg, color: colors.dark, boxSizing: "border-box",
+              }}
+            />
+            <textarea
+              placeholder="Kopiere den Text deiner E-Mail hier hinein..."
+              value={textContent}
+              onChange={e => setTextContent(e.target.value)}
+              rows={8}
+              style={{
+                width: "100%", padding: "12px 14px", fontFamily: typography.sans, fontSize: 13,
+                border: `1.5px solid ${colors.border}`, borderRadius: 8, outline: "none",
+                background: colors.bg, color: colors.dark, resize: "vertical", boxSizing: "border-box",
+                minHeight: 180,
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
+              <Button
+                disabled={!textContent.trim() || uploading}
+                onClick={handleTextUpload}
+              >
+                {uploading ? "Wird hochgeladen…" : "Text als Dokument hinzufügen"}
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Fehler-Anzeige */}
         {error && (

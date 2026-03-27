@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { colors, textStyles, typography } from "../../../theme/tokens";
-import { Icon } from "../../../components";
+import { colors, shadows, textStyles, typography } from "../../../theme/tokens";
+import { Button, Icon } from "../../../components";
 import { OpponentConfirmation } from "../../../components/OpponentConfirmation";
 import {
   caseAnalyzeApi, analysisApi, extractionApi, documentsApi,
@@ -24,15 +24,17 @@ import { CATEGORY_FIELDS, FIELD_LABELS_MAP } from "../../../constants/categoryFi
 // Phase "review"    → rechts: Vollständiges Formular + Sticky Footer
 // ─────────────────────────────────────────────────────────────────────────────
 
-type Phase = "ocr" | "analyzing" | "review";
+type Phase = "loading" | "ocr" | "analyzing" | "review";
 
 interface AnalysisStepProps {
-  caseId:          string;
-  onNext:          () => void;
-  onBack:          () => void;
-  docs:            DocumentListItem[];
-  selectedDoc:     DocumentListItem | null;
-  onActionChange?: (cfg: { label: string; disabled: boolean; handler: () => void }) => void;
+  caseId:              string;
+  onNext:              () => void;
+  onBack:              () => void;
+  docs:                DocumentListItem[];
+  selectedDoc:         DocumentListItem | null;
+  onActionChange?:     (cfg: { label: string; disabled: boolean; handler: () => void }) => void;
+  /** Wird aufgerufen, sobald die KI-Analyse gestartet wird (für Re-Run-Schutz). */
+  onAnalysisStarted?:  () => void;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -90,7 +92,7 @@ const DocContent: React.FC<{
     }}>
       {/* Header */}
       <div style={{
-        padding: "14px 28px", borderBottom: `1px solid ${colors.border}`,
+        padding: "20px 28px 14px", borderBottom: `1px solid ${colors.border}`,
         flexShrink: 0, background: colors.white,
       }}>
         <p style={{ fontFamily: typography.sans, fontSize: 14, fontWeight: 600, color: colors.dark, marginBottom: 2 }}>
@@ -155,9 +157,9 @@ const DocContent: React.FC<{
                 <p style={{ fontFamily: typography.sans, fontWeight: 700, fontSize: 12, color: colors.teal, marginBottom: 8, marginTop: 0 }}>
                   ✦ KI-Zusammenfassung
                 </p>
-                {summary.split("\n").filter(Boolean).map((line, i) => (
-                  <p key={i} style={{ fontFamily: typography.sans, fontSize: 12, color: colors.mid, lineHeight: 1.65, margin: "0 0 3px 0" }}>{line}</p>
-                ))}
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+                  {summary}
+                </ReactMarkdown>
               </div>
             )}
 
@@ -270,13 +272,14 @@ interface RightPanelProps {
   onFieldChange:    (k: string, v: string) => void;
   onOpponentChange: (cat: OpponentCategory, name: string) => void;
   onUploadMore:     () => void;
+  onRerunRequest:   () => void;
 }
 
 const RightPanel: React.FC<RightPanelProps> = ({
   phase, allOcrDone, confirming, canConfirm, error,
   extraction, docs, fieldValues,
   reviewFields, autoFields,
-  onFieldChange, onOpponentChange, onUploadMore,
+  onFieldChange, onOpponentChange, onUploadMore, onRerunRequest,
 }) => {
   const [expandAuto, setExpandAuto] = useState(false);
 
@@ -293,7 +296,7 @@ const RightPanel: React.FC<RightPanelProps> = ({
     }}>
       {/* Header */}
       <div style={{
-        padding: "14px 24px", borderBottom: `1px solid ${colors.border}`,
+        padding: "20px 24px 14px", borderBottom: `1px solid ${colors.border}`,
         flexShrink: 0,
       }}>
         <p style={{ fontFamily: typography.sans, fontSize: 14, fontWeight: 700, color: colors.dark }}>
@@ -313,8 +316,8 @@ const RightPanel: React.FC<RightPanelProps> = ({
           </div>
         )}
 
-        {/* Phase: ocr */}
-        {phase === "ocr" && (
+        {/* Phase: loading / ocr */}
+        {(phase === "ocr" || phase === "loading") && (
           <>
             <div style={{
               background: colors.tealLight, border: `1px solid ${colors.teal}`,
@@ -473,6 +476,23 @@ const RightPanel: React.FC<RightPanelProps> = ({
             </button>
           </div>
         )}
+
+        {/* Analyse neu starten (nur in review-Phase) */}
+        {phase === "review" && (
+          <div style={{ borderTop: `1px solid ${colors.border}`, marginTop: 20, paddingTop: 16 }}>
+            <button
+              onClick={onRerunRequest}
+              style={{
+                width: "100%", padding: "8px 12px", borderRadius: 8,
+                border: `1.5px solid ${colors.border}`, background: "transparent",
+                color: colors.muted, fontFamily: typography.sans, fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              ↻ Analyse neu starten
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );
@@ -484,9 +504,9 @@ const RightPanel: React.FC<RightPanelProps> = ({
  * Step 2: KI-Analyse — OCR-Ergebnis prüfen, Daten bestätigen (Human-in-the-Loop).
  */
 export const AnalysisStep: React.FC<AnalysisStepProps> = ({
-  caseId, onNext, onBack, docs, selectedDoc, onActionChange,
+  caseId, onNext, onBack, docs, selectedDoc, onActionChange, onAnalysisStarted,
 }) => {
-  const [phase,           setPhase]          = useState<Phase>("ocr");
+  const [phase,           setPhase]          = useState<Phase>("loading");
   const [extraction,      setExtraction]      = useState<ExtractionResult | null>(null);
   const [fieldValues,     setFieldValues]     = useState<Record<string, string>>({});
   const [oppCat,          setOppCat]          = useState<OpponentCategory>("sonstiges");
@@ -496,7 +516,9 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
   const confirmingRef = useRef(false); // sofortiger Lock – verhindert Race-Condition durch Mehrfachklick
   const [error,           setError]           = useState<string | null>(null);
   const [summaries,       setSummaries]       = useState<Record<string, string>>({});
-  const [summaryLoading,  setSummaryLoading]  = useState(false);
+  const [summaryLoading,  setSummaryLoading]  = useState<Record<string, boolean>>({});
+  const summaryRequestedRef = useRef(new Set<string>());
+  const [showRerunConfirm, setShowRerunConfirm] = useState(false);
   const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const initExtraction = useCallback((r: ExtractionResult) => {
@@ -527,29 +549,41 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
     initExtraction(r);
   }, [initExtraction]);
 
-  // Zusammenfassung laden wenn Dokument gewählt und Text lang genug
+  // Zusammenfassungen im Hintergrund für ALLE Dokumente laden
   useEffect(() => {
-    if (!selectedDoc || !selectedDoc.masked_text_preview) return;
-    if (selectedDoc.masked_text_preview.length < 600) return;
-    const id = selectedDoc.document_id;
-    if (summaries[id] !== undefined) return;
-    setSummaryLoading(true);
-    documentsApi.summarize(caseId, id)
-      .then(r => {
-        setSummaries(prev => ({ ...prev, [id]: r.summary ?? "" }));
-        setSummaryLoading(false);
-      })
-      .catch(() => setSummaryLoading(false));
-  }, [caseId, selectedDoc, summaries]);
+    docs.forEach(doc => {
+      if (!doc.masked_text_preview || doc.masked_text_preview.length < 600) return;
+      const id = doc.document_id;
+      
+      // Bereits angefragt oder fertig?
+      if (summaryRequestedRef.current.has(id)) return;
+      
+      // Request markieren und Ladezustand setzen
+      summaryRequestedRef.current.add(id);
+      setSummaryLoading(prev => ({ ...prev, [id]: true }));
+      
+      documentsApi.summarize(caseId, id)
+        .then(r => {
+          setSummaries(prev => ({ ...prev, [id]: r.summary ?? "" }));
+        })
+        .catch(() => {})
+        .finally(() => {
+          setSummaryLoading(prev => ({ ...prev, [id]: false }));
+        });
+    });
+  }, [caseId, docs]);
 
-  // On mount: check if analysis already done
+  // On mount: check if analysis already done (restore "review" without re-running)
   useEffect(() => {
     extractionApi.getFields(caseId)
       .then(r => { initExtraction(r); setPhase("review"); })
       .catch(() => {
         analysisApi.result(caseId)
-          .then(r => { if (r.extracted_data) { buildLegacy(r); setPhase("review"); } })
-          .catch(() => {});
+          .then(r => {
+            if (r.extracted_data) { buildLegacy(r); setPhase("review"); }
+            else { setPhase("ocr"); }
+          })
+          .catch(() => setPhase("ocr"));
       });
   }, [caseId, initExtraction, buildLegacy]);
 
@@ -594,14 +628,15 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
     try {
       await caseAnalyzeApi.start(caseId);
       setPhase("analyzing");
+      onAnalysisStarted?.();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("409")) { setPhase("analyzing"); }
+      if (msg.includes("409")) { setPhase("analyzing"); onAnalysisStarted?.(); }
       else setError(`Analyse konnte nicht gestartet werden: ${msg}`);
     } finally {
       setStarting(false);
     }
-  }, [caseId]);
+  }, [caseId, onAnalysisStarted]);
 
   const handleConfirm = useCallback(async () => {
     if (confirmingRef.current) return; // sofortiger Lock gegen Mehrfachklick
@@ -623,8 +658,19 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
       });
       onNext();
     } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      
+      // Fehler 409 bedeutet, dass der Status serverseitig bereits fortgeschritten ist
+      // (z.B. user ist zurückgesprungen und klickt erneut auf "Bestätigen").
+      // In diesem Fall dürfen wir den User einfach weiterlassen, ohne die Analyse neu zu erzwingen!
+      if (msg.includes("409")) {
+        confirmingRef.current = false;
+        onNext();
+        return;
+      }
+
       confirmingRef.current = false; // Lock freigeben damit Nutzer es erneut versuchen kann
-      setError(err instanceof Error ? err.message : "Bestätigung fehlgeschlagen.");
+      setError(msg || "Bestätigung fehlgeschlagen.");
     } finally {
       setConfirming(false);
     }
@@ -632,7 +678,9 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
 
   // Header-Button-State nach oben kommunizieren
   useEffect(() => {
-    if (phase === "ocr") {
+    if (phase === "loading") {
+      onActionChange?.({ label: "Wird geladen…", disabled: true, handler: () => {} });
+    } else if (phase === "ocr") {
       onActionChange?.({
         label:    starting ? "Wird gestartet…" : "KI-Analyse starten",
         disabled: !allOcrDone || starting,
@@ -650,15 +698,48 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
   }, [phase, allOcrDone, starting, confirming, canConfirm, handleStart, handleConfirm, onActionChange]);
 
   const currentSummary = selectedDoc ? (summaries[selectedDoc.document_id] ?? null) : null;
+  const currentSummaryLoading = selectedDoc ? (summaryLoading[selectedDoc.document_id] ?? false) : false;
 
   return (
-    // Füllt die rechte flex-1-Spalte von CaseFlow vollständig aus (2 sub-Spalten)
+    <>
+    {/* Bestätigungsdialog: Analyse neu starten */}
+    {showRerunConfirm && (
+      <div
+        style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,.4)", display: "flex", alignItems: "center", justifyContent: "center" }}
+        onClick={() => setShowRerunConfirm(false)}
+      >
+        <div onClick={e => e.stopPropagation()} style={{ background: colors.white, borderRadius: 16, padding: 28, width: 400, boxShadow: shadows.modal }}>
+          <p style={{ fontFamily: typography.sans, fontSize: 16, fontWeight: 700, color: colors.dark, marginBottom: 12 }}>
+            Analyse neu starten?
+          </p>
+          <p style={{ fontFamily: typography.sans, fontSize: 14, color: colors.mid, lineHeight: 1.6, marginBottom: 24 }}>
+            Die bisherigen KI-Ergebnisse werden verworfen und eine neue Analyse gestartet. Dies verursacht zusätzliche Kosten.
+          </p>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <Button variant="outline" onClick={() => setShowRerunConfirm(false)}>Abbrechen</Button>
+            <Button onClick={() => { setShowRerunConfirm(false); handleStart(); }}>Ja, neu analysieren</Button>
+          </div>
+        </div>
+      </div>
+    )}
+
     <div
       className="fade-in"
-      style={{ display: "flex", height: "100%", overflow: "hidden" }}
+      style={{
+        flex: 1,
+        minHeight: 0,
+        width: "100%",
+        display: "flex",
+        flexDirection: "row",
+        background: colors.white,
+        borderRadius: 14,
+        border: `1px solid ${colors.border}`,
+        boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+        overflow: "hidden",
+      }}
     >
       {/* ── Spalte A: Dokumentinhalt (flex-1) ── */}
-      <DocContent doc={selectedDoc} phase={phase} summary={currentSummary} summaryLoading={summaryLoading} />
+      <DocContent doc={selectedDoc} phase={phase} summary={currentSummary} summaryLoading={currentSummaryLoading} />
 
       {/* ── Spalte B: Erkannte Daten (380px) ── */}
       <RightPanel
@@ -675,7 +756,9 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
         onFieldChange={(k, v) => setFieldValues(p => ({ ...p, [k]: v }))}
         onOpponentChange={(cat, name) => { setOppCat(cat); setOppName(name); }}
         onUploadMore={onBack}
+        onRerunRequest={() => setShowRerunConfirm(true)}
       />
     </div>
+    </>
   );
 };

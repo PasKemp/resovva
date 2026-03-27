@@ -301,6 +301,12 @@ async def start_analysis(
             detail=f"{len(in_progress)} Dokument(e) noch in Verarbeitung. Bitte warten.",
         )
 
+    # Vorheriges Ergebnis löschen, damit das Frontend während der neuen Analyse
+    # eine 404 bekommt (statt sofort das alte Fehler-/Ergebnis-Flag zu sehen).
+    # Leeres Dict statt None: extracted_data ist NOT NULL (Mapped[dict]).
+    case.extracted_data = {}
+    db.commit()
+
     logger.info("Analyse gestartet: Fall %s", case_id)
     background_tasks.add_task(_run_analysis_background, case_id)
 
@@ -308,6 +314,39 @@ async def start_analysis(
         status="accepted",
         message="Analyse wurde gestartet.",
     )
+
+
+async def _clear_checkpoint(case_id: str) -> None:
+    """Löscht einen vorhandenen (ggf. korrumpierten) LangGraph-Checkpoint aus PostgreSQL.
+
+    Öffnet eine eigene Verbindung direkt über psycopg, damit wir nicht auf
+    LangGraph-interne Pool-Attribute angewiesen sind (die sich zwischen
+    Versionen von langgraph-checkpoint-postgres ändern können).
+    Im MemorySaver-Modus (kein POSTGRES_CHECKPOINT_URL) ist diese Funktion ein No-op.
+    """
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    if not settings.postgres_checkpoint_url:
+        return  # MemorySaver – kein DB-Checkpoint vorhanden
+
+    try:
+        import psycopg  # type: ignore[import]
+
+        async with await psycopg.AsyncConnection.connect(
+            settings.postgres_checkpoint_url, autocommit=True
+        ) as conn:
+            await conn.execute(
+                "DELETE FROM checkpoint_writes WHERE thread_id = %s",
+                (case_id,),
+            )
+            await conn.execute(
+                "DELETE FROM checkpoints WHERE thread_id = %s",
+                (case_id,),
+            )
+        logger.debug("Checkpoint für Case %s gelöscht.", case_id)
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Checkpoint-Bereinigung fehlgeschlagen (Case %s): %r", case_id, exc)
 
 
 async def _run_analysis_background(case_id: str) -> None:
@@ -344,6 +383,10 @@ async def _run_analysis_background(case_id: str) -> None:
     }
     try:
         agent_app = await get_agent_app()
+        # Alten / ggf. korrumpierten Checkpoint löschen, damit ainvoke immer mit einem
+        # sauberen Thread startet.  Der HiTL-Resume-Pfad (aupdate_state + ainvoke(None))
+        # läuft über einen separaten Code-Pfad und wird davon nicht berührt.
+        await _clear_checkpoint(case_id)
         await agent_app.ainvoke(initial_state, config=config)
     except GraphInterrupt:
         # Normaler Interrupt – Graph wartet auf Nutzer-Bestätigung (US-3.5).
@@ -432,6 +475,24 @@ async def confirm_analysis(
         HTTPException 409: Fall nicht in WAITING_FOR_USER (inkl. Race-Guard).
     """
     case = get_owned_case(case_id, current_user, db)
+
+    confirmed_update = {
+        "meter_number": payload.meter_number,
+        "malo_id": payload.malo_id,
+        "dispute_amount": payload.dispute_amount,
+        "network_operator": payload.network_operator,
+        "opponent_category": payload.opponent_category,
+        "opponent_name": payload.opponent_name,
+    }
+
+    if case.status in ["TIMELINE_READY", "BUILDING_TIMELINE"]:
+        # Fall-Daten (z.B. Zählernummer) wurden nachträglich im Frontend via Step 2 korrigiert. 
+        # Wir speichern die Anpassungen, triggern aber NICHT den KI-Graph neu.
+        data = dict(case.extracted_data or {})
+        data.update(confirmed_update)
+        case.extracted_data = data
+        db.commit()
+        return ConfirmAnalysisResponse(status="confirmed", next_step="timeline")
 
     if case.status != "WAITING_FOR_USER":
         raise HTTPException(

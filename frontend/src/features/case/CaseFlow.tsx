@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { colors, textStyles, typography } from "../../theme/tokens";
+import { colors, shadows, textStyles, typography } from "../../theme/tokens";
 import { Button, Icon } from "../../components";
 import { UploadStep } from "./steps/UploadStep";
 import { AnalysisStep } from "./steps/AnalysisStep";
@@ -15,12 +15,13 @@ import type { WithSetPage } from "../../types";
 //  ┌──────────────┬──────────────────────────────────────────────────────┐
 //  │ DOC-NAV      │  SCHRITT-INHALT                                      │
 //  │ 240px fix    │  flex-1 (wächst mit dem Viewport)                    │
-//  │  (immer      │                                                      │
-//  │   sichtbar)  │  Step 1: Upload-Formular                             │
+//  │  (einklappb.)│                                                      │
+//  │              │  Step 1: Upload-Formular                             │
 //  │              │  Step 2: [Dokument-Text flex-1] | [Form 380px]       │
 //  │              │  Step 3: Timeline                                    │
 //  │              │  Step 4: Checkout                                    │
 //  └──────────────┴──────────────────────────────────────────────────────┘
+//  └──────────────────── Sticky Footer: Zurück / Weiter ────────────────┘
 // ─────────────────────────────────────────────────────────────────────────────
 
 type StepIndex = 0 | 1 | 2 | 3;
@@ -103,30 +104,50 @@ const Stepper = ({ current, onStep }: { current: StepIndex; onStep: (i: StepInde
   </div>
 );
 
-// ── Persistente Dokument-Navigation (linke Spalte, immer sichtbar) ────────────
+// ── Persistente Dokument-Navigation (linke Spalte, einklappbar) ───────────────
 
 const DocNav = ({
-  docs, selectedId, onSelect,
+  docs, selectedId, onSelect, open, onToggle,
 }: {
   docs: DocumentListItem[]; selectedId: string | null; onSelect: (id: string) => void;
+  open: boolean; onToggle: () => void;
 }) => (
   <aside style={{
-    width: 240, flexShrink: 0,
+    width: open ? 240 : 36, flexShrink: 0,
     borderRight: `1px solid ${colors.border}`,
     display: "flex", flexDirection: "column",
-    background: colors.bg, overflowY: "auto",
+    background: colors.bg,
+    transition: "width .22s ease",
+    overflow: "hidden",
   }}>
-    <div style={{ padding: "16px 20px 10px", flexShrink: 0 }}>
-      <p style={textStyles.label}>Dokumente ({docs.length})</p>
+    <div style={{
+      padding: "12px 10px", flexShrink: 0,
+      display: "flex", alignItems: "center",
+      justifyContent: open ? "space-between" : "center",
+      borderBottom: `1px solid ${colors.border}`,
+    }}>
+      {open && <p style={{ ...textStyles.label, margin: 0 }}>Dokumente ({docs.length})</p>}
+      <button
+        onClick={onToggle}
+        title={open ? "Seitenleiste einklappen" : "Seitenleiste ausklappen"}
+        style={{
+          background: "none", border: "none", cursor: "pointer",
+          width: 24, height: 24, borderRadius: 6, flexShrink: 0,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          color: colors.muted, fontSize: 18, fontFamily: typography.sans,
+        }}
+      >
+        {open ? "‹" : "›"}
+      </button>
     </div>
 
-    {docs.length === 0 && (
+    {open && docs.length === 0 && (
       <p style={{ ...textStyles.small, color: colors.muted, padding: "12px 20px" }}>
         Noch keine Dokumente
       </p>
     )}
 
-    {docs.map(doc => {
+    {open && docs.map(doc => {
       const active = doc.document_id === selectedId;
       const done   = doc.ocr_status === "completed";
       const err    = doc.ocr_status === "error";
@@ -168,9 +189,9 @@ const DocNav = ({
               }}>
                 {done ? "✓ Analysiert"
                   : err  ? "✗ Fehler"
-                  : doc.ocr_status === "masking"            ? "⏳ Maskierung…"
+                  : doc.ocr_status === "masking"              ? "⏳ Maskierung…"
                   : doc.ocr_status === "llama_parse_fallback" ? "⏳ Cloud-Analyse…"
-                  : doc.ocr_status === "parsing"            ? "⏳ Extraktion…"
+                  : doc.ocr_status === "parsing"              ? "⏳ Extraktion…"
                   : "⏳ Verarbeitung…"}
               </p>
             </div>
@@ -179,6 +200,32 @@ const DocNav = ({
       );
     })}
   </aside>
+);
+
+// ── Warnung: Analyse-Reset ────────────────────────────────────────────────────
+
+const ResetWarningDialog: React.FC<{ onConfirm: () => void; onCancel: () => void }> = ({ onConfirm, onCancel }) => (
+  <div
+    style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,.4)", display: "flex", alignItems: "center", justifyContent: "center" }}
+    onClick={onCancel}
+  >
+    <div
+      onClick={e => e.stopPropagation()}
+      style={{ background: colors.white, borderRadius: 16, padding: 28, width: 420, boxShadow: shadows.modal }}
+    >
+      <p style={{ fontFamily: typography.sans, fontSize: 16, fontWeight: 700, color: colors.dark, marginBottom: 12 }}>
+        ⚠ Fortschritt wird zurückgesetzt
+      </p>
+      <p style={{ fontFamily: typography.sans, fontSize: 14, color: colors.mid, lineHeight: 1.6, marginBottom: 24 }}>
+        Wenn du ein neues Dokument hinzufügst, muss die KI die Chronologie neu aufbauen.
+        Dein bisheriger Fortschritt in den nächsten Schritten wird zurückgesetzt. Fortfahren?
+      </p>
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <Button variant="outline" onClick={onCancel}>Abbrechen</Button>
+        <Button onClick={onConfirm}>Ja, fortfahren</Button>
+      </div>
+    </div>
+  </div>
 );
 
 // ── CaseFlow ─────────────────────────────────────────────────────────────────
@@ -197,25 +244,33 @@ export const CaseFlow = ({
   onStepChange,
   onCaseCreated,
 }: CaseFlowProps) => {
-  const [step,          setStep]          = useState<StepIndex>((initialStep as StepIndex) ?? 0);
-  const [caseId,        setCaseId]        = useState<string | null>(initialCaseId ?? null);
-  const [caseError,     setCaseError]     = useState<string | null>(null);
-  const [docs,          setDocs]          = useState<DocumentListItem[]>([]);
-  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
-  const [uploadHasFiles, setUploadHasFiles] = useState(false);
-  const [step1Btn, setStep1Btn] = useState<{ label: string; disabled: boolean }>({
+  const [step,            setStep]            = useState<StepIndex>((initialStep as StepIndex) ?? 0);
+  const [caseId,          setCaseId]          = useState<string | null>(initialCaseId ?? null);
+  const [caseError,       setCaseError]       = useState<string | null>(null);
+  const [docs,            setDocs]            = useState<DocumentListItem[]>([]);
+  const [selectedDocId,   setSelectedDocId]   = useState<string | null>(null);
+  const [uploadHasFiles,  setUploadHasFiles]  = useState(false);
+  const [step1Btn,        setStep1Btn]        = useState<{ label: string; disabled: boolean }>({
     label: "KI-Analyse starten", disabled: true,
   });
-  const step1ActionRef = useRef<() => void>(() => {});
-  const hasCreatedRef = useRef(false);
+  const [sidebarOpen,     setSidebarOpen]     = useState(true);
+  const [analysisStarted, setAnalysisStarted] = useState(false);
+  const [showResetDialog, setShowResetDialog] = useState(false);
+
+  const step1ActionRef  = useRef<() => void>(() => {});
+  const hasCreatedRef   = useRef(false);
+  const resolveResetRef = useRef<((v: boolean) => void) | null>(null);
 
   // "Weiter" aktiv: Step 0 nur wenn Dateien vorhanden, Step 2 immer
-  const canNext = step === 0 ? uploadHasFiles : step === 2;
+  const canNext  = step === 0 ? uploadHasFiles : step === 2;
   const showNext = step === 0 || step === 2;
   const showBack = step > 0;
 
   // Step-Änderungen melden
   useEffect(() => { onStepChange?.(step); }, [step, onStepChange]);
+
+  // Sidebar automatisch einklappen wenn Schritt > 0
+  useEffect(() => { setSidebarOpen(step === 0); }, [step]);
 
   // Fall anlegen (StrictMode-Guard: leeres Array ist bewusst — einmaliger Mount-Effekt)
   useEffect(() => {
@@ -226,6 +281,13 @@ export const CaseFlow = ({
       .catch(() => { hasCreatedRef.current = false; setCaseError("Fall konnte nicht erstellt werden. Bitte Seite neu laden."); });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- einmaliger Mount-Effekt, kein StrictMode-Problem durch Ref-Guard
 
+  // Vermeidung von unnötigem API-Polling über Refs (verhindert ständige Re-Render des Intervals)
+  const stepRef = useRef(step);
+  useEffect(() => { stepRef.current = step; }, [step]);
+
+  const docsRef = useRef(docs);
+  useEffect(() => { docsRef.current = docs; }, [docs]);
+
   // Dokumente zentral pollen – alle Steps nutzen diese Liste
   useEffect(() => {
     if (!caseId) return;
@@ -233,8 +295,17 @@ export const CaseFlow = ({
       caseStatusApi.listDocuments(caseId)
         .then(r => setDocs(r.documents))
         .catch(() => {});
-    load();
-    const t = setInterval(load, 2000);
+    
+    load(); // Immer sofort laden
+    
+    const t = setInterval(() => {
+      const hasPending = docsRef.current.some(d => d.ocr_status !== "completed" && d.ocr_status !== "error");
+      // Nur API aufrufen, wenn wir im Upload-Step (0) sind ODER Dokumente gerade noch verarbeitet werden
+      if (stepRef.current === 0 || hasPending) {
+        load();
+      }
+    }, 2000);
+    
     return () => clearInterval(t);
   }, [caseId]);
 
@@ -249,6 +320,28 @@ export const CaseFlow = ({
 
   const selectedDoc = docs.find(d => d.document_id === selectedDocId) ?? docs[0] ?? null;
 
+  // Promise-basierter Upload-Guard: zeigt Dialog wenn KI bereits gestartet
+  const handleBeforeUpload = (): Promise<boolean> => {
+    if (!analysisStarted) return Promise.resolve(true);
+    return new Promise(resolve => {
+      resolveResetRef.current = resolve;
+      setShowResetDialog(true);
+    });
+  };
+
+  const confirmReset = () => {
+    setShowResetDialog(false);
+    setAnalysisStarted(false);
+    resolveResetRef.current?.(true);
+    resolveResetRef.current = null;
+  };
+
+  const cancelReset = () => {
+    setShowResetDialog(false);
+    resolveResetRef.current?.(false);
+    resolveResetRef.current = null;
+  };
+
   if (caseError) return (
     <div style={{ padding: "48px 24px", textAlign: "center" }}>
       <p style={{ ...textStyles.body, color: colors.redText }}>{caseError}</p>
@@ -262,9 +355,13 @@ export const CaseFlow = ({
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
 
-      {/* ── Oberer Bereich: Zurück zur Übersicht + Stepper + Nav-Buttons ── */}
+      {showResetDialog && (
+        <ResetWarningDialog onConfirm={confirmReset} onCancel={cancelReset} />
+      )}
+
+      {/* ── Oberer Bereich: Zurück zur Übersicht + Stepper ── */}
       <div style={{ padding: "10px 20px 10px", flexShrink: 0, background: colors.white, borderBottom: `1px solid ${colors.border}` }}>
 
         {/* Zurück zur Übersicht */}
@@ -282,47 +379,41 @@ export const CaseFlow = ({
 
         {/* Stepper */}
         <Stepper current={step} onStep={goTo} />
-
-        {/* Nav-Buttons: Zurück links, Weiter rechts */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
-          <div>
-            {showBack && (
-              <Button variant="outline" size="sm" onClick={back}>
-                ← Zurück
-              </Button>
-            )}
-          </div>
-          <div>
-            {showNext && (
-              <Button size="sm" onClick={next} disabled={!canNext}>
-                Weiter <Icon name="arrow" size={13} color="#fff" />
-              </Button>
-            )}
-            {step === 1 && (
-              <Button size="sm" onClick={() => step1ActionRef.current()} disabled={step1Btn.disabled}>
-                {step1Btn.label}
-                {!step1Btn.disabled && <Icon name="arrow" size={13} color="#fff" />}
-              </Button>
-            )}
-          </div>
-        </div>
       </div>
 
       {/* ── Haupt-Bereich: DocNav links | Step-Inhalt rechts ── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
-        {/* Persistente linke Spalte */}
-        <DocNav docs={docs} selectedId={selectedDocId} onSelect={setSelectedDocId} />
+        {/* Einklappbare linke Spalte */}
+        <DocNav
+          docs={docs}
+          selectedId={selectedDocId}
+          onSelect={setSelectedDocId}
+          open={sidebarOpen}
+          onToggle={() => setSidebarOpen(o => !o)}
+        />
 
         {/* Rechte Spalte: Step-Inhalt */}
         <div style={{
           flex: 1, minWidth: 0,
+          display: "flex", flexDirection: "column",
           // Step 1 (Analyse): overflow hidden, da AnalysisStep selbst 2 scrollende Spalten hat
           overflowY: step === 1 ? "hidden" : "auto",
-          padding: step === 1 ? 0 : "28px 32px 48px",
-          background: step === 1 ? colors.white : colors.bg,
+          
+          // 🛑 FIX 1: Einheitliches Padding für ALLE Steps!
+          padding: "24px 32px", 
+          
+          background: colors.bg,
         }}>
-          {step === 0 && <UploadStep caseId={caseId} docs={docs} onNext={next} onCanNextChange={setUploadHasFiles} />}
+          {step === 0 && (
+            <UploadStep
+              caseId={caseId}
+              docs={docs}
+              onNext={next}
+              onCanNextChange={setUploadHasFiles}
+              onBeforeUpload={handleBeforeUpload}
+            />
+          )}
           {step === 1 && (
             <AnalysisStep
               caseId={caseId}
@@ -330,6 +421,7 @@ export const CaseFlow = ({
               onBack={back}
               docs={docs}
               selectedDoc={selectedDoc}
+              onAnalysisStarted={() => setAnalysisStarted(true)}
               onActionChange={cfg => {
                 step1ActionRef.current = cfg.handler;
                 setStep1Btn({ label: cfg.label, disabled: cfg.disabled });
@@ -338,6 +430,35 @@ export const CaseFlow = ({
           )}
           {step === 2 && <TimelineStep caseId={caseId} onNext={next} onBack={back} onGoToUpload={() => setStep(0)} />}
           {step === 3 && <CheckoutStep caseId={caseId} onBack={back} setPage={setPage} />}
+        </div>
+      </div>
+
+      {/* ── Sticky Footer: Nav-Buttons ── */}
+      <div style={{
+        flexShrink: 0,
+        background: colors.white, borderTop: `1px solid ${colors.border}`,
+        padding: "12px 24px",
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+      }}>
+        <div>
+          {showBack && (
+            <Button variant="outline" size="sm" onClick={back}>
+              ← Zurück
+            </Button>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          {showNext && (
+            <Button size="sm" onClick={next} disabled={!canNext}>
+              Weiter <Icon name="arrow" size={13} color="#fff" />
+            </Button>
+          )}
+          {step === 1 && (
+            <Button size="sm" onClick={() => step1ActionRef.current()} disabled={step1Btn.disabled}>
+              {step1Btn.label}
+              {!step1Btn.disabled && <Icon name="arrow" size={13} color="#fff" />}
+            </Button>
+          )}
         </div>
       </div>
     </div>
