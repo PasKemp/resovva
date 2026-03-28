@@ -9,10 +9,11 @@ export interface StepMeta {
 }
 
 export const STEPS: StepMeta[] = [
-  { label: "Upload",      sublabel: "Dokumente & Scan",    icon: "upload" },
-  { label: "Analyse",     sublabel: "KI & Datenschutz",    icon: "brain"  },
-  { label: "Roter Faden", sublabel: "Chronologie",         icon: "list"   },
-  { label: "Abschluss",   sublabel: "Überblick & Zahlung", icon: "folder" },
+  { label: "Fall",         sublabel: "Kurzbeschreibung",    icon: "file"   },
+  { label: "Upload",       sublabel: "Dokumente & Scan",    icon: "upload" },
+  { label: "Analyse",      sublabel: "KI & Datenschutz",    icon: "brain"  },
+  { label: "Roter Faden",  sublabel: "Chronologie",         icon: "list"   },
+  { label: "Abschluss",    sublabel: "Überblick & Zahlung", icon: "folder" },
 ];
 
 const StepDot: React.FC<{ index: number; current: number }> = ({ index, current }) => {

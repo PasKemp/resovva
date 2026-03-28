@@ -43,7 +43,8 @@ class TestCheckoutEndpoint:
         client, user = auth_client
         case = _make_case(db, user)
 
-        resp = client.post(f"/api/v1/cases/{case.id}/checkout")
+        with patch("app.workers.dossier_worker.run_dossier_generation"):
+            resp = client.post(f"/api/v1/cases/{case.id}/checkout")
 
         assert resp.status_code == 200
         assert resp.json()["checkout_url"] == ""
@@ -78,7 +79,8 @@ class TestCheckoutEndpoint:
         client, user = auth_client
         case = _make_case(db, user, status="PAYMENT_PENDING")
 
-        resp = client.post(f"/api/v1/cases/{case.id}/checkout")
+        with patch("app.workers.dossier_worker.run_dossier_generation"):
+            resp = client.post(f"/api/v1/cases/{case.id}/checkout")
 
         assert resp.status_code == 200
         db.refresh(case)

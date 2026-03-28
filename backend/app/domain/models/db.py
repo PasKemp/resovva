@@ -129,6 +129,7 @@ class Case(Base):
         String(255), unique=True, nullable=True
     )
     extracted_data: Mapped[dict] = mapped_column(JSONB, default=dict)
+    initial_context: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True, default=None)
 
     # Opponent details
     opponent_category: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
@@ -171,6 +172,7 @@ class Case(Base):
             "network_operator": (self.extracted_data or {}).get("network_operator"),
             "opponent_category": self.opponent_category,
             "opponent_name": self.opponent_name,
+            "initial_context": self.initial_context,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }

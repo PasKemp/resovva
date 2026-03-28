@@ -117,6 +117,18 @@ export interface CreateCaseResponse {
   message: string;
 }
 
+export interface InitialContextPayload {
+  opponent_name: string;
+  category:      string;
+  goal:          string;
+  description:   string;
+}
+
+export interface InitialContextResponse {
+  status:           string;
+  recommended_docs: string[];
+}
+
 export const casesApi = {
   list:   () =>
     apiFetch<CasesResponse>("/api/v1/cases"),
@@ -130,6 +142,13 @@ export const casesApi = {
   /** Aktualisiert Streitpartei-Kategorie und -Name (US-9.4). */
   updateOpponent: (caseId: string, data: { opponent_category?: string; opponent_name?: string }) =>
     apiFetch<{ status: string }>(`/api/v1/cases/${caseId}`, {
+      method: "PATCH",
+      body:   JSON.stringify(data),
+    }),
+
+  /** Speichert Fall-Steckbrief und gibt empfohlene Dokumente zurück (US-7.2, US-7.3). */
+  setContext: (caseId: string, data: InitialContextPayload) =>
+    apiFetch<InitialContextResponse>(`/api/v1/cases/${caseId}/context`, {
       method: "PATCH",
       body:   JSON.stringify(data),
     }),

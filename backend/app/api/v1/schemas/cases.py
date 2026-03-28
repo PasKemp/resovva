@@ -131,3 +131,25 @@ class UpdateOpponentRequest(BaseModel):
 class UpdateOpponentResponse(BaseModel):
     """Status of the opponent update."""
     status: str = "updated"
+
+
+# ── Epic 7: Case Brief Schemas ─────────────────────────────────────────────
+
+class InitialContextRequest(BaseModel):
+    """
+    Guided case brief submitted before document upload (US-7.1 / US-7.2).
+
+    Fields correspond to the four form fields in InitialSetupStep.
+    """
+
+    opponent_name: str
+    category: str   # Abrechnungsfehler | Kündigungsprobleme | Anbieterwechsel-Chaos | PV-Anlage/Einspeisung | Sonstiges
+    goal: str       # Korrekte Abrechnung erhalten | Kündigung bestätigen lassen | Geld zurückfordern
+    description: str
+
+
+class InitialContextResponse(BaseModel):
+    """Response after saving the case brief (US-7.3)."""
+
+    status: str = "saved"
+    recommended_docs: List[str]

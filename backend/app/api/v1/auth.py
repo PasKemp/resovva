@@ -33,6 +33,7 @@ from app.core.security import (
     hash_reset_token,
     verify_password,
 )
+from app.domain.exceptions import AuthenticationError, ConflictError
 from app.domain.models.db import PasswordResetToken, User
 from app.infrastructure.database import get_db
 
@@ -88,7 +89,7 @@ def register(
     existing = db.query(User).filter(User.email == body.email).first()
     if existing:
         logger.warning("Registration failed: email already exists", extra={"email": body.email})
-        raise HTTPException(status_code=409, detail="Email already registered.")
+        raise ConflictError("Email already registered.")
 
     user = User(
         email=body.email,
@@ -140,15 +141,10 @@ def login(
     Raises:
         HTTPException: If credentials are invalid (Unauthorized 401).
     """
-    auth_error = HTTPException(
-        status_code=401,
-        detail="Invalid email or password.",
-    )
-
     user = db.query(User).filter(User.email == body.email).first()
     if not user or not verify_password(body.password, user.hashed_password):
         logger.warning("Login failed", extra={"email": body.email})
-        raise auth_error
+        raise AuthenticationError("Invalid email or password.")
 
     token = create_access_token(str(user.id))
     _set_auth_cookie(response, token)

@@ -27,6 +27,8 @@ interface UploadStepProps {
   onCanNextChange?:  (can: boolean) => void;
   /** Vor dem Upload aufrufen. Gibt false zurück → Upload abbrechen. */
   onBeforeUpload?:   () => Promise<boolean>;
+  /** Empfohlene Dokumente aus dem Fall-Steckbrief (US-7.3). */
+  recommendedDocs?:  string[];
 }
 
 interface UploadedFile {
@@ -102,7 +104,7 @@ const FileRow: React.FC<{ file: UploadedFile; onRemove: (f: UploadedFile) => voi
  * Step 1: Dokument-Upload per Drag-Drop, Dateiauswahl oder QR-Code (Handy).
  * Dokumentenliste wird zentral von CaseFlow gepflegt und als `docs` übergeben.
  */
-export const UploadStep: React.FC<UploadStepProps> = ({ caseId, docs, onNext: _onNext, onCanNextChange, onBeforeUpload }) => {
+export const UploadStep: React.FC<UploadStepProps> = ({ caseId, docs, onNext: _onNext, onCanNextChange, onBeforeUpload, recommendedDocs = [] }) => {
   const [localFiles,   setLocalFiles]   = useState<UploadedFile[]>([]);
   const [dragging,     setDragging]     = useState(false);
   const [uploading,    setUploading]    = useState(false);
@@ -218,6 +220,28 @@ export const UploadStep: React.FC<UploadStepProps> = ({ caseId, docs, onNext: _o
     <div className="fade-in">
       <Card style={{ marginBottom: 20 }}>
         <h3 style={{ ...textStyles.h3, marginBottom: 20 }}>1. Upload & Mobile Scan</h3>
+
+        {/* ── Empfohlene Dokumente (US-7.3) ── */}
+        {recommendedDocs.length > 0 && (
+          <div style={{
+            background:   colors.tealLight,
+            border:       `1px solid ${colors.teal}`,
+            borderRadius: 10,
+            padding:      "14px 16px",
+            marginBottom: 20,
+          }}>
+            <p style={{ ...textStyles.label, color: colors.teal, marginBottom: 8 }}>
+              Das brauchst du für diesen Fall
+            </p>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {recommendedDocs.map((doc, i) => (
+                <li key={i} style={{ ...textStyles.body, fontSize: 13, marginBottom: 4, color: colors.dark }}>
+                  {doc}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* ── Tabs ── */}
         <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>

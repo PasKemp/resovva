@@ -46,7 +46,7 @@ class TestOCRWorkerDeep:
         db.commit()
         
         # 2. Mocks
-        mock_local.return_value = MagicMock(text="Raw Text", page_count=1)
+        mock_local.return_value = MagicMock(text="Raw Text", page_count=1, chars_per_page=[500])
         mock_mask.return_value = "Masked Text"
         
         # 3. Execution (Calling the worker logic directly)
@@ -65,26 +65,32 @@ class TestOCRWorkerDeep:
 class TestDossierWorkerDeep:
     """Verifies run_dossier_generation logic (app/workers/dossier_worker.py)."""
 
+    @patch("app.core.config.get_settings")
     @patch("app.services.dossier_generator.DossierGenerator.generate")
     @patch("app.services.evidence_compiler.EvidenceCompiler.compile")
-    def test_run_dossier_success_flow(self, mock_compile, mock_generate, db, mock_external_apis):
+    def test_run_dossier_success_flow(self, mock_compile, mock_generate, mock_get_settings, db, mock_external_apis):
         """Should transition case status from GENERATING to COMPLETED."""
         # 1. Setup
         user = User(
-            email="dossier@example.com", 
-            hashed_password="pw", 
+            email="dossier@example.com",
+            hashed_password="pw",
             accepted_terms=True,
             first_name="John",
             last_name="Doe"
         )
         db.add(user)
         db.commit()
-        
+
         case = Case(user_id=user.id, status="TIMELINE_READY")
         db.add(case)
         db.commit()
-        
+
         # 2. Mocks
+        mock_get_settings.return_value = MagicMock(
+            resend_api_key="test-resend-key",
+            app_base_url="http://localhost:5173",
+            email_from="noreply@resovva.de",
+        )
         mock_generate.return_value = b"PDF-CONTENT"
         mock_compile.return_value = "s3/path/to/dossier.pdf"
         

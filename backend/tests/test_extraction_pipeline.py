@@ -19,7 +19,7 @@ import io
 import struct
 from datetime import date
 from typing import Generator
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -363,7 +363,7 @@ class TestPipelineStatusFlow:
         ):
             process_document("doc-uuid-1")
 
-        mock_mask.assert_called_once_with("A" * 500)
+        mock_mask.assert_called_once_with("A" * 500, street=ANY, postal_code=ANY)
         assert doc.masked_text == "masked text"
 
     @patch("app.services.extraction.pipeline.mask_pii", return_value="masked cloud text")
@@ -405,7 +405,7 @@ class TestPipelineStatusFlow:
         ):
             process_document("doc-uuid-1")
 
-        mock_mask.assert_called_once_with("# LlamaParse Markdown")
+        mock_mask.assert_called_once_with("# LlamaParse Markdown", street=ANY, postal_code=ANY)
         assert doc.masked_text == "masked cloud text"
 
     @patch("app.services.extraction.pipeline.get_storage")

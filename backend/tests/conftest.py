@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import os
 import re
+from unittest.mock import MagicMock, patch
+
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
@@ -156,6 +158,7 @@ def mock_external_apis():
     """
     with (
         patch("app.infrastructure.storage.get_storage") as mock_storage,
+        patch("app.services.extraction.pipeline.get_storage") as mock_pipeline_storage,
         patch("resend.Emails.send") as mock_resend,
         patch("stripe.checkout.Session.create") as mock_stripe,
         patch("app.core.rag.chunk_and_embed") as mock_rag,
@@ -165,6 +168,7 @@ def mock_external_apis():
         storage_instance.upload_file.return_value = "mocked/key"
         storage_instance.download_file.return_value = b"%PDF-1.4"
         mock_storage.return_value = storage_instance
+        mock_pipeline_storage.return_value = storage_instance
         
         # Mock Stripe
         mock_stripe.return_value = MagicMock(id="cs_test", url="https://stripe.com/test")

@@ -1,21 +1,31 @@
 """
-PII-Masking Engine – Epic 2 (US-2.5).
+PII-Masking Engine – Epic 2 (US-2.5) + Epic 8 (US-8.3).
 
-Maskiert sensible Personendaten (IBAN, E-Mail) im extrahierten Dokumententext,
-bevor dieser die KI-Pipeline erreicht. Das Originaldokument im S3-Bucket bleibt
-strikt unangetastet – nur der Rohtext wird maskiert und im DB-Feld masked_text
-gespeichert.
+Maskiert sensible Personendaten im extrahierten Dokumententext, bevor dieser
+die KI-Pipeline erreicht. Das Originaldokument im S3-Bucket bleibt unberührt –
+nur der Rohtext wird maskiert und im DB-Feld masked_text gespeichert.
 
-Regex-Muster:
-  IBAN: Deutsche IBANs (DE + 20 Ziffern), kompakt oder mit Leerzeichen (4er-Gruppen)
-  E-Mail: Alle gängigen E-Mail-Adressen
+Maskierungs-Layer (in Reihenfolge):
+  1. Regex        – IBAN → ***IBAN***, E-Mail → ***@***.*** (immer aktiv)
+  2. Profil-Block – Straße/PLZ des Nutzers → ***ADRESSE*** (USE_PRESIDIO_DEEP=1)
+  3. NER          – Telefon → ***TELEFON***, Datum → ***GEBURTSDATUM*** (USE_PRESIDIO_DEEP=1)
 
-Optionales Upgrade: USE_PRESIDIO=1 aktiviert NLP-basierte Presidio-Maskierung
-  (Namen, Telefon, Adressen etc.) – Fallback auf Regex falls Presidio fehlt.
+Fallback-Modus: USE_PRESIDIO=1 aktiviert die alte generische Presidio-Maskierung
+  ohne entity-spezifische Tokens (rückwärtskompatibel, kein spaCy nötig).
+
+Namen (PERSON-Entitäten) werden in Layer 3 bewusst nicht maskiert, damit
+die Chronologie- und Analyse-Logik Gegner/Absender identifizieren kann.
 """
 
 import re
 from typing import Optional
+
+from app.core.privacy_engine import (
+    build_profile_blocklist,
+    deep_masking_available,
+    mask_ner,
+    mask_profile_blocklist,
+)
 
 # ── Regex-Muster ──────────────────────────────────────────────────────────────
 
@@ -48,27 +58,52 @@ def mask_email(text: str) -> str:
     return EMAIL_PATTERN.sub(EMAIL_REPLACEMENT, text)
 
 
-def mask_pii(text: Optional[str]) -> str:
+def mask_pii(
+    text: Optional[str],
+    *,
+    street: Optional[str] = None,
+    postal_code: Optional[str] = None,
+) -> str:
     """
     Wendet vollständige PII-Maskierung auf den extrahierten Text an.
 
-    Reihenfolge: IBAN → E-Mail (Regex).
-    Mit USE_PRESIDIO=1 wird Presidio für erweiterte NLP-Erkennung genutzt
-    (Namen, Telefon, Adressen) – Fallback auf Regex falls Presidio fehlt.
+    Layer-Reihenfolge (Epic 8 US-8.3):
+      1. Regex (IBAN → ***IBAN***, E-Mail → ***@***.***) – immer aktiv.
+      2. Profil-Blockliste (Straße/PLZ → ***ADRESSE***) – nur mit USE_PRESIDIO_DEEP=1.
+      3. NER (Telefon → ***TELEFON***, Datum → ***GEBURTSDATUM***) – nur mit USE_PRESIDIO_DEEP=1.
+
+    Wenn USE_PRESIDIO_DEEP nicht gesetzt: Fallback auf USE_PRESIDIO (alte generische
+    Presidio-Maskierung) oder reines Regex.
 
     Args:
-        text: Rohtext aus OCR/PDF-Extraktion.
+        text:        Rohtext aus OCR/PDF-Extraktion.
+        street:      Straße/Hausnummer des Nutzers für die Profil-Blockliste.
+        postal_code: PLZ des Nutzers für die Profil-Blockliste.
 
     Returns:
-        Maskierter Text (IBAN → ***IBAN***, E-Mail → ***@***.***).
+        Maskierter Text.
     """
     if not text:
         return text or ""
+
+    if deep_masking_available():
+        # Layer 1: Regex
+        result = mask_email(mask_iban(text))
+        # Layer 2: Profil-Blockliste
+        blocklist = build_profile_blocklist(street, postal_code)
+        if blocklist:
+            result = mask_profile_blocklist(result, blocklist)
+        # Layer 3: NER (Telefon, Datum – PERSON ausgelassen)
+        result = mask_ner(result)
+        return result
+
+    # Fallback: alte generische Presidio-Maskierung
     if _presidio_available():
         try:
             return _mask_presidio(text)
         except Exception:
             pass
+
     return mask_email(mask_iban(text))
 
 

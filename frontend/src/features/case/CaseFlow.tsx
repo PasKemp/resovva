@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { colors, textStyles } from "../../theme/tokens";
 import { Button, Icon } from "../../components";
+import { InitialSetupStep } from "./steps/InitialSetupStep";
 import { UploadStep } from "./steps/UploadStep";
 import { AnalysisStep } from "./steps/AnalysisStep";
 import { TimelineStep } from "./steps/TimelineStep";
@@ -14,7 +15,7 @@ import { ResetWarningDialog } from "./components/ResetWarningDialog";
 
 // ── CaseFlow ─────────────────────────────────────────────────────────────────
 
-type StepIndex = 0 | 1 | 2 | 3;
+type StepIndex = 0 | 1 | 2 | 3 | 4;
 
 interface CaseFlowProps extends WithSetPage {
   caseId?:        string;
@@ -44,9 +45,18 @@ export const CaseFlow = ({
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [forceRefresh,    setForceRefresh]    = useState(0);
 
+  const [step0CanProceed,  setStep0CanProceed]  = useState(false);
+  const [recommendedDocs,  setRecommendedDocs]  = useState<string[]>([]);
+
+  const step0ActionRef  = useRef<() => void>(() => {});
   const step1ActionRef  = useRef<() => void>(() => {});
   const hasCreatedRef   = useRef(false);
   const resolveResetRef = useRef<((v: boolean) => void) | null>(null);
+
+  const handleStep0ActionChange = useCallback((cfg: { canProceed: boolean; handler: () => void }) => {
+    step0ActionRef.current = cfg.handler;
+    setStep0CanProceed(prev => prev === cfg.canProceed ? prev : cfg.canProceed);
+  }, []);
 
   const handleStep1ActionChange = useCallback((cfg: { label: string; disabled: boolean; handler: () => void }) => {
     step1ActionRef.current = cfg.handler;
@@ -60,16 +70,16 @@ export const CaseFlow = ({
     setAnalysisStarted(true);
   }, []);
 
-  // "Weiter" aktiv: Step 0 nur wenn Dateien vorhanden, Step 2 immer
-  const canNext  = step === 0 ? uploadHasFiles : step === 2;
-  const showNext = step === 0 || step === 2;
+  // "Weiter" aktiv: Step 1 (Upload) nur wenn Dateien vorhanden, Step 3 (Timeline) immer
+  const canNext  = step === 1 ? uploadHasFiles : step === 3;
+  const showNext = step === 1 || step === 3;
   const showBack = step > 0;
 
   // Step-Änderungen melden
   useEffect(() => { onStepChange?.(step); }, [step, onStepChange]);
 
-  // Sidebar automatisch einklappen wenn Schritt > 0
-  useEffect(() => { setSidebarOpen(step === 0); }, [step]);
+  // Sidebar automatisch einklappen wenn Schritt > 1 (Upload-Step)
+  useEffect(() => { setSidebarOpen(step === 1); }, [step]);
 
   // Fall anlegen (StrictMode-Guard: leeres Array ist bewusst — einmaliger Mount-Effekt)
   useEffect(() => {
@@ -99,8 +109,8 @@ export const CaseFlow = ({
     
     const t = setInterval(() => {
       const hasPending = docsRef.current.some(d => d.ocr_status !== "completed" && d.ocr_status !== "error");
-      // Nur API aufrufen, wenn wir im Upload-Step (0) sind ODER Dokumente gerade noch verarbeitet werden
-      if (stepRef.current === 0 || hasPending) {
+      // Nur API aufrufen, wenn wir im Upload-Step (1) sind ODER Dokumente gerade noch verarbeitet werden
+      if (stepRef.current === 1 || hasPending) {
         load();
       }
     }, 2000);
@@ -114,8 +124,13 @@ export const CaseFlow = ({
   }, [docs, selectedDocId]);
 
   const goTo = (i: number) => { if (i <= step) setStep(i as StepIndex); };
-  const next = useCallback(() => setStep(s => Math.min(s + 1, 3) as StepIndex), []);
+  const next = useCallback(() => setStep(s => Math.min(s + 1, 4) as StepIndex), []);
   const back = useCallback(() => setStep(s => Math.max(s - 1, 0) as StepIndex), []);
+
+  const handleContextSaved = useCallback((docs: string[]) => {
+    setRecommendedDocs(docs);
+    next();
+  }, [next]);
 
   const selectedDoc = docs.find(d => d.document_id === selectedDocId) ?? docs[0] ?? null;
 
@@ -188,18 +203,26 @@ export const CaseFlow = ({
         {/* Rechte Spalte: Step-Inhalt */}
         <div style={{
           ...styles.contentWrapper,
-          overflowY: step === 1 ? "hidden" : "auto",
+          overflowY: step === 2 ? "hidden" : "auto",
         }}>
           {step === 0 && (
+            <InitialSetupStep
+              caseId={caseId}
+              onActionChange={handleStep0ActionChange}
+              onContextSaved={handleContextSaved}
+            />
+          )}
+          {step === 1 && (
             <UploadStep
               caseId={caseId}
               docs={docs}
               onNext={next}
               onCanNextChange={setUploadHasFiles}
               onBeforeUpload={handleBeforeUpload}
+              recommendedDocs={recommendedDocs}
             />
           )}
-          {step === 1 && (
+          {step === 2 && (
             <AnalysisStep
               caseId={caseId}
               onNext={next}
@@ -211,8 +234,8 @@ export const CaseFlow = ({
               onActionChange={handleStep1ActionChange}
             />
           )}
-          {step === 2 && <TimelineStep caseId={caseId} onNext={next} onBack={back} onGoToUpload={() => setStep(0)} />}
-          {step === 3 && <CheckoutStep caseId={caseId} onBack={back} setPage={setPage} />}
+          {step === 3 && <TimelineStep caseId={caseId} onNext={next} onBack={back} onGoToUpload={() => setStep(1)} />}
+          {step === 4 && <CheckoutStep caseId={caseId} onBack={back} setPage={setPage} />}
         </div>
       </div>
 
@@ -226,12 +249,17 @@ export const CaseFlow = ({
           )}
         </div>
         <div style={styles.footerButtonsRight}>
+          {step === 0 && (
+            <Button size="sm" onClick={() => step0ActionRef.current()} disabled={!step0CanProceed}>
+              Weiter <Icon name="arrow" size={13} color="#fff" />
+            </Button>
+          )}
           {showNext && (
             <Button size="sm" onClick={next} disabled={!canNext}>
               Weiter <Icon name="arrow" size={13} color="#fff" />
             </Button>
           )}
-          {step === 1 && (
+          {step === 2 && (
             <Button size="sm" onClick={() => step1ActionRef.current()} disabled={step1Btn.disabled}>
               {step1Btn.label}
               {!step1Btn.disabled && <Icon name="arrow" size={13} color="#fff" />}

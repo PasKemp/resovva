@@ -8,6 +8,7 @@ Supports human-in-the-loop (HiTL) interactions for entity correction.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 
@@ -27,6 +28,8 @@ from app.api.v1.schemas.cases import (
     ConfirmAnalysisResponse,
     ExtractionFieldResponse,
     ExtractionResultResponse,
+    InitialContextRequest,
+    InitialContextResponse,
     OpponentResponse,
     UpdateOpponentRequest,
     UpdateOpponentResponse,
@@ -447,6 +450,56 @@ def update_case_opponent(
     return UpdateOpponentResponse(status="updated")
 
 
+@router.patch("/{case_id}/context", response_model=InitialContextResponse)
+async def set_initial_context(
+    case_id: str,
+    payload: InitialContextRequest,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+) -> InitialContextResponse:
+    """
+    Save case brief and generate recommended document checklist (US-7.2, US-7.3).
+
+    Stores the four guided-onboarding fields in initial_context JSONB.
+    Calls gpt-4o-mini to produce 3–5 recommended document bullet points.
+    Stores result back in initial_context["recommended_docs"] before returning.
+
+    Args:
+        case_id: UUID of the case.
+        payload: The four case brief fields from InitialSetupStep.
+
+    Returns:
+        InitialContextResponse: Confirmation plus recommended_docs list.
+
+    Raises:
+        HTTPException: If the case is not found or not owned by this user (404).
+    """
+    case = get_owned_case(case_id, current_user, db)
+
+    context: dict = {
+        "opponent_name": payload.opponent_name,
+        "category":      payload.category,
+        "goal":          payload.goal,
+        "description":   payload.description,
+    }
+
+    recommended_docs = await _generate_recommended_docs(context)
+    context["recommended_docs"] = recommended_docs
+
+    case.initial_context = context
+    db.commit()
+
+    logger.info(
+        "Initial context saved",
+        extra={"case_id": case_id, "category": payload.category}
+    )
+
+    return InitialContextResponse(
+        status="saved",
+        recommended_docs=recommended_docs,
+    )
+
+
 # ── Background Worker Tasks (LangGraph Orchestration) ────────────────────────
 
 async def _run_analysis_background(case_id: str) -> None:
@@ -457,6 +510,7 @@ async def _run_analysis_background(case_id: str) -> None:
     config = {"configurable": {"thread_id": case_id}}
     initial_state = {
         "case_id": case_id,
+        "initial_context": None,
         "messages": [],
         "documents": [],
         "extracted_entities": {},
@@ -532,6 +586,54 @@ async def _clear_checkpoint(case_id: str) -> None:
             await conn.execute("DELETE FROM checkpoints WHERE thread_id = %s", (case_id,))
     except Exception as exc:
         logger.warning("Checkpoint cleanup failed", extra={"case_id": case_id, "error": str(exc)})
+
+
+async def _generate_recommended_docs(context: dict) -> list[str]:
+    """
+    Call gpt-4o-mini to generate 3–5 recommended document bullet points.
+
+    Uses the existing get_llm() factory so Azure / standard OpenAI switching
+    is handled automatically. Falls back to an empty list on any error.
+
+    Args:
+        context: The case brief dict with category, goal, description, opponent_name.
+
+    Returns:
+        List of 3–5 German-language document recommendation strings.
+    """
+    from app.infrastructure.azure_openai import get_llm
+
+    prompt = (
+        "Du bist ein deutscher Rechtsassistent für Verbraucherstreitigkeiten.\n"
+        "Ein Nutzer hat folgende Fallbeschreibung eingegeben:\n"
+        f"- Streitpartei: {context.get('opponent_name')}\n"
+        f"- Kategorie: {context.get('category')}\n"
+        f"- Ziel: {context.get('goal')}\n"
+        f"- Beschreibung: {context.get('description')}\n\n"
+        "Erstelle eine Liste von 3 bis 5 Dokumenten, die der Nutzer für seinen Fall "
+        "hochladen sollte. Antworte NUR mit einer JSON-Liste von kurzen deutschen Strings, "
+        'zum Beispiel: ["Letzte Jahresabrechnung", "Kündigung schriftlich", ...]. '
+        "Keine Erklärungen, nur die JSON-Liste."
+    )
+
+    try:
+        llm = get_llm(model="gpt-4o-mini")
+        response = await llm.ainvoke(prompt)
+        raw: str = response.content.strip()
+        # Strip code-fence if model wraps in ```json ... ```
+        if raw.startswith("```"):
+            parts = raw.split("```")
+            raw = parts[1] if len(parts) > 1 else raw
+            if raw.startswith("json"):
+                raw = raw[4:]
+        items: list = json.loads(raw.strip())
+        return [str(item) for item in items if isinstance(item, str)][:5]
+    except Exception as exc:
+        logger.warning(
+            "Recommended docs generation failed, returning empty list",
+            extra={"error": str(exc)}
+        )
+        return []
 
 
 def _set_case_error(case_id: str) -> None:

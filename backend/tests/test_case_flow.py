@@ -49,7 +49,7 @@ def _create_second_user_with_case(db) -> tuple[User, Case]:
     """Sets up a secondary user/case to verify tenant isolation."""
     other = User(
         email="other@example.com",
-        password=hash_password("pw123"),
+        hashed_password=hash_password("pw123"),
         accepted_terms=True,
     )
     db.add(other)

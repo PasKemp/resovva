@@ -102,6 +102,8 @@ def _run_column_migrations(engine: Engine) -> None:
         # Epic 9: Opponent Model
         "ALTER TABLE cases ADD COLUMN IF NOT EXISTS opponent_category VARCHAR(50)",
         "ALTER TABLE cases ADD COLUMN IF NOT EXISTS opponent_name    VARCHAR(255)",
+        # Epic 7: Case Brief initial context
+        "ALTER TABLE cases ADD COLUMN IF NOT EXISTS initial_context JSONB",
     ]
 
     with engine.begin() as conn:

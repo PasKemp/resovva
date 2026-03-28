@@ -10,12 +10,17 @@ from typing import Any, List, Optional
 from app.core.config import get_settings
 
 
-def get_llm() -> Any:
+def get_llm(model: Optional[str] = None) -> Any:
     """
     Liefert das Chat-Modell für LangChain/LangGraph.
 
     - Azure konfiguriert (Endpoint + Key) → AzureChatOpenAI (Production).
+      Der ``model``-Parameter wird im Azure-Modus ignoriert (Azure nutzt Deployments).
     - Nur OPENAI_API_KEY gesetzt → ChatOpenAI (DEV, platform.openai.com, Pay-per-Use).
+      Mit ``model`` kann ein abweichendes Modell gewählt werden, z.B. "gpt-4o-mini".
+
+    Args:
+        model: Optionaler Modellname (nur für Standard OpenAI wirksam).
     """
     settings = get_settings()
 
@@ -40,7 +45,7 @@ def get_llm() -> Any:
     if settings.openai_api_key:
         kwargs["api_key"] = settings.openai_api_key
 
-    return ChatOpenAI(model="gpt-4o", temperature=0, timeout=60, **kwargs)
+    return ChatOpenAI(model=model or "gpt-4o", temperature=0, timeout=60, **kwargs)
 
 
 def get_embeddings(

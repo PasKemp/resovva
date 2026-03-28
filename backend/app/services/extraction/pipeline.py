@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.masking import mask_pii
-from app.domain.models.db import Document, LlamaParseUsage
+from app.domain.models.db import Case, Document, LlamaParseUsage, User
 from app.infrastructure.database import get_db_context
 from app.infrastructure.storage import get_storage
 from app.services.extraction.llamaparse_extractor import (
@@ -154,7 +154,17 @@ def _run_pipeline(doc: Document, db: Session) -> None:
     doc.ocr_status = "masking"
     db.commit()
 
-    masked = mask_pii(raw_text)
+    # Nutzerprofil für dynamische Blockliste laden (Epic 8 US-8.2)
+    street: Optional[str] = None
+    postal_code: Optional[str] = None
+    case = db.query(Case).filter(Case.id == doc.case_id).first()
+    if case:
+        user = db.query(User).filter(User.id == case.user_id).first()
+        if user:
+            street = user.street
+            postal_code = user.postal_code
+
+    masked = mask_pii(raw_text, street=street, postal_code=postal_code)
     doc.masked_text = masked
     doc.ocr_status = "completed"
     db.commit()

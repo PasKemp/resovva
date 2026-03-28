@@ -20,6 +20,8 @@ class ChronologyEvent(TypedDict):
 
 class ResovvaState(TypedDict):
     case_id: str
+    # Epic 7: guided onboarding context (opponent_name, category, goal, description, recommended_docs)
+    initial_context: Optional[dict]
     # append-only (LangGraph-Konvention für Message-Listen)
     messages: Annotated[List[str], operator.add]
     documents: List[DocumentMetadata]
