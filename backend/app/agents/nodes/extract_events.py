@@ -117,56 +117,65 @@ async def node_extract_events(state: AgentState) -> AgentState:
         logger.error("extract_events: Ungültige Case-ID %s.", case_id)
         return {**state, "current_step": "extract_events_error", "events_per_doc": {}}
 
-    # Status → BUILDING_TIMELINE
-    with get_db_context() as db:
-        case = db.query(Case).filter(Case.id == case_uuid).first()
-        if case:
-            case.status = "BUILDING_TIMELINE"
-            db.commit()
+    try:
+        # Status → BUILDING_TIMELINE
+        with get_db_context() as db:
+            case = db.query(Case).filter(Case.id == case_uuid).first()
+            if case:
+                case.status = "BUILDING_TIMELINE"
+                db.commit()
 
-        docs = (
-            db.query(Document)
-            .filter(
-                Document.case_id == case_uuid,
-                Document.ocr_status == "completed",
-                Document.masked_text.isnot(None),
+            docs = (
+                db.query(Document)
+                .filter(
+                    Document.case_id == case_uuid,
+                    Document.ocr_status == "completed",
+                    Document.masked_text.isnot(None),
+                )
+                .all()
             )
-            .all()
-        )
-        doc_data = [
-            (str(d.id), d.filename, d.document_type or "UNKNOWN", d.masked_text)
-            for d in docs
-        ]
+            doc_data = [
+                (str(d.id), d.filename, d.document_type or "UNKNOWN", d.masked_text)
+                for d in docs
+            ]
 
-    if not doc_data:
-        logger.warning("extract_events: Keine abgeschlossenen Dokumente für Case %s.", case_uuid)
+        if not doc_data:
+            logger.warning("extract_events: Keine abgeschlossenen Dokumente für Case %s.", case_uuid)
+            return {
+                **state,
+                "current_step": "extract_events",
+                "events_per_doc": {},
+                "messages": messages + ["System: Keine Dokumente für Ereignis-Extraktion."],
+            }
+
+        logger.info("extract_events: %d Dokumente werden parallel verarbeitet.", len(doc_data))
+
+        tasks = [_extract_for_doc(doc_id, fname, dtype, text) for doc_id, fname, dtype, text in doc_data]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        events_per_doc: dict = {}
+        for res in results:
+            if isinstance(res, Exception):
+                logger.warning("extract_events: Fehler bei Dokument-Verarbeitung: %s", res)
+                continue
+            doc_id, events = res
+            events_per_doc[doc_id] = events
+            logger.debug("extract_events: %d Events aus Dok %s extrahiert.", len(events), doc_id)
+
+        total = sum(len(v) for v in events_per_doc.values())
+        logger.info("extract_events: %d Events aus %d Dokumenten extrahiert.", total, len(events_per_doc))
+
         return {
             **state,
-            "current_step":  "extract_events",
-            "events_per_doc": {},
-            "messages": messages + ["System: Keine Dokumente für Ereignis-Extraktion."],
+            "current_step": "extract_events",
+            "events_per_doc": events_per_doc,
+            "messages": messages + [f"System: {total} Ereignisse aus {len(events_per_doc)} Dokumenten extrahiert."],
         }
-
-    logger.info("extract_events: %d Dokumente werden parallel verarbeitet.", len(doc_data))
-
-    tasks = [_extract_for_doc(doc_id, fname, dtype, text) for doc_id, fname, dtype, text in doc_data]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    events_per_doc: dict = {}
-    for res in results:
-        if isinstance(res, Exception):
-            logger.warning("extract_events: Fehler bei Dokument-Verarbeitung: %s", res)
-            continue
-        doc_id, events = res
-        events_per_doc[doc_id] = events
-        logger.debug("extract_events: %d Events aus Dok %s extrahiert.", len(events), doc_id)
-
-    total = sum(len(v) for v in events_per_doc.values())
-    logger.info("extract_events: %d Events aus %d Dokumenten extrahiert.", total, len(events_per_doc))
-
-    return {
-        **state,
-        "current_step":   "extract_events",
-        "events_per_doc": events_per_doc,
-        "messages": messages + [f"System: {total} Ereignisse aus {len(events_per_doc)} Dokumenten extrahiert."],
-    }
+    except Exception as exc:
+        logger.error("extract_events: Globaler Fehler in Node: %s", exc, exc_info=True)
+        return {
+            **state,
+            "current_step": "extract_events_error",
+            "events_per_doc": {},
+            "messages": messages + [f"System: Fehler bei Ereignis-Extraktion: {exc}"],
+        }

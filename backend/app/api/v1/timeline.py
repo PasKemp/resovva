@@ -86,6 +86,9 @@ async def get_timeline(
     case = get_owned_case(case_id, current_user, db)
 
     # Status check for AI agent processing
+    if case.status == "ERROR" or (case.extracted_data or {}).get("error"):
+        return TimelineResponse(status="error", events=[])
+
     if case.status == "BUILDING_TIMELINE":
         return TimelineResponse(status="building", events=[])
 

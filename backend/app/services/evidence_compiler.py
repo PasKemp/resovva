@@ -187,7 +187,7 @@ class EvidenceCompiler:
             annex_label = f"Anlage {idx}"
             logger.info(
                 "Compiling annex",
-                extra={"case_id": case_id, "label": annex_label, "filename": doc.filename}
+                extra={"case_id": case_id, "label": annex_label, "doc_filename": doc.filename}
             )
 
             try:
@@ -213,7 +213,7 @@ class EvidenceCompiler:
                     extra={
                         "case_id": case_id,
                         "document_id": str(doc.id),
-                        "filename": doc.filename,
+                        "doc_filename": doc.filename,
                         "error": str(exc)
                     }
                 )

@@ -543,6 +543,7 @@ def _set_case_error(case_id: str) -> None:
             case = db.query(Case).filter(Case.id == case_uuid).first()
             if case:
                 case.extracted_data = {"error": True}
+                case.status = "ERROR"
                 db.commit()
     except (ValueError, Exception):
         pass

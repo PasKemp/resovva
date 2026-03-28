@@ -157,6 +157,7 @@ class DossierGenerator:
             "network_operator":     data.get("network_operator"),
             "document_count":       len(case.documents) if hasattr(case, "documents") else 0,
             "timeline_events":      timeline_events,
+            "user":                 user,
         }
 
         try:

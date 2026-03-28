@@ -128,8 +128,6 @@ async def _node_confirm(state: AgentState) -> AgentState:
             case.extracted_data = confirmed
             case.opponent_category = state.get("opponent_category")
             case.opponent_name = state.get("opponent_name")
-            # Status zurücksetzen (Epic 4 wird hier weiterführen)
-            case.status = "DRAFT"
             db.commit()
             logger.info("Case %s: Daten bestätigt und gespeichert.", case_uuid)
 
