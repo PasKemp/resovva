@@ -452,7 +452,7 @@ def get_analysis_result(
     case = get_owned_case(case_id, current_user, db)
 
     data = case.extracted_data or {}
-    if not data or ("extracted_at" not in data and "missing_data" not in data and "error" not in data):
+    if not data or ("extracted_at" not in data and "missing_data" not in data and "error" not in data and "confirmed" not in data):
         raise HTTPException(status_code=404, detail="Analyse noch nicht abgeschlossen.")
 
     if data.get("error"):
@@ -501,7 +501,7 @@ async def confirm_analysis(
     }
 
     if case.status in ["TIMELINE_READY", "BUILDING_TIMELINE"]:
-        # Fall-Daten (z.B. Zählernummer) wurden nachträglich im Frontend via Step 2 korrigiert. 
+        # Fall-Daten (z.B. Zählernummer) wurden nachträglich im Frontend via Step 2 korrigiert.
         # Wir speichern die Anpassungen, triggern aber NICHT den KI-Graph neu.
         data = dict(case.extracted_data or {})
         data.update(confirmed_update)
@@ -627,7 +627,7 @@ def get_extraction_result(
     case = get_owned_case(case_id, current_user, db)
     data = case.extracted_data or {}
 
-    if not data or "extracted_at" not in data:
+    if not data or ("extracted_at" not in data and "confirmed" not in data):
         raise HTTPException(status_code=404, detail="Analyse noch nicht abgeschlossen.")
 
     field_confidences: dict = data.get("field_confidences", {})

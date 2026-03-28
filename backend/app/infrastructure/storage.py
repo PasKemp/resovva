@@ -5,7 +5,11 @@ Nutzt boto3 gegen MinIO (lokale Entwicklung) oder AWS S3 (Produktion).
 Der Bucket wird beim ersten Zugriff automatisch erstellt falls nicht vorhanden.
 
 Config (.env):
-  S3_ENDPOINT    – MinIO-Dev: http://minio:9000 | AWS: https://s3.amazonaws.com
+  S3_ENDPOINT    – Intern (Docker): http://minio:9000 | AWS: https://s3.amazonaws.com
+  S3_PUBLIC_URL  – Öffentlich erreichbar (Browser): http://localhost:9000
+                   Leer lassen → fällt auf S3_ENDPOINT zurück.
+                   In Docker Dev: S3_ENDPOINT ist nur intern auflösbar (minio:9000),
+                   Presigned-URLs müssen aber localhost:9000 enthalten.
   S3_ACCESS_KEY  – Access Key (MinIO: minioadmin)
   S3_SECRET_KEY  – Secret Key (MinIO: minioadmin)
   S3_BUCKET_NAME – Bucket-Name (z.B. resovva-docs)
@@ -30,6 +34,8 @@ class StorageService:
     def __init__(self) -> None:
         settings = get_settings()
         self._bucket = settings.s3_bucket_name
+
+        # Interner Client: für Up-/Download (läuft im Docker-Netzwerk → minio:9000 OK)
         self._client = boto3.client(
             "s3",
             endpoint_url=settings.s3_endpoint,
@@ -37,6 +43,26 @@ class StorageService:
             aws_secret_access_key=settings.s3_secret_key,
             region_name="us-east-1",  # MinIO ignoriert die Region
         )
+
+        # Presigned-URL-Client: nutzt öffentliche URL (browser-erreichbar).
+        # In Docker Dev: s3_endpoint=http://minio:9000 (intern),
+        #                s3_public_url=http://localhost:9000 (vom Browser erreichbar)
+        # Ohne s3_public_url → selber Client wie oben (AWS S3 / Prod reichen ein Client)
+        public_endpoint = settings.s3_public_url or settings.s3_endpoint
+        if public_endpoint != settings.s3_endpoint:
+            logger.debug(
+                "StorageService: Presigned-URL-Client nutzt öffentliche URL: %s", public_endpoint
+            )
+            self._presigned_client = boto3.client(
+                "s3",
+                endpoint_url=public_endpoint,
+                aws_access_key_id=settings.s3_access_key,
+                aws_secret_access_key=settings.s3_secret_key,
+                region_name="us-east-1",
+            )
+        else:
+            self._presigned_client = self._client
+
         self._ensure_bucket()
 
     def _ensure_bucket(self) -> None:
@@ -106,14 +132,18 @@ class StorageService:
         """
         Generiert eine zeitlich begrenzte Download-URL (z.B. für das Dossier).
 
+        Nutzt den Presigned-URL-Client mit der öffentlich erreichbaren URL
+        (S3_PUBLIC_URL), damit der Browser-Redirect funktioniert, auch wenn der
+        interne S3_ENDPOINT nur im Docker-Netzwerk auflösbar ist (minio:9000).
+
         Args:
             key:        S3-Key der Datei.
             expires_in: Gültigkeitsdauer in Sekunden (Standard: 1 Stunde).
 
         Returns:
-            Presigned URL als String.
+            Presigned URL als String (mit browser-erreichbarem Hostnamen).
         """
-        return self._client.generate_presigned_url(
+        return self._presigned_client.generate_presigned_url(
             "get_object",
             Params={"Bucket": self._bucket, "Key": key},
             ExpiresIn=expires_in,

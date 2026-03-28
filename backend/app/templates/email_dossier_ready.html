@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dein Resovva-Dossier ist fertig</title>
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 14px;
+      color: #1F2937;
+      background: #F9FAFB;
+      margin: 0;
+      padding: 0;
+    }
+    .wrapper {
+      max-width: 560px;
+      margin: 40px auto;
+      background: #fff;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #E5E7EB;
+    }
+    .header {
+      background: #FF6B35;
+      padding: 28px 36px;
+      text-align: center;
+    }
+    .header h1 {
+      color: #fff;
+      font-size: 22px;
+      margin: 0;
+      font-weight: 700;
+    }
+    .header p {
+      color: rgba(255,255,255,0.85);
+      font-size: 13px;
+      margin: 6px 0 0;
+    }
+    .body {
+      padding: 32px 36px;
+    }
+    .body p {
+      color: #374151;
+      line-height: 1.6;
+      margin-bottom: 14px;
+    }
+    .cta-btn {
+      display: block;
+      width: fit-content;
+      margin: 24px auto;
+      background: #FF6B35;
+      color: #fff !important;
+      text-decoration: none;
+      padding: 13px 32px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 15px;
+      text-align: center;
+    }
+    .meta-box {
+      background: #F9FAFB;
+      border: 1px solid #E5E7EB;
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin: 20px 0;
+      font-size: 13px;
+      color: #6B7280;
+    }
+    .meta-box strong { color: #1F2937; }
+    .footer {
+      padding: 18px 36px;
+      border-top: 1px solid #E5E7EB;
+      font-size: 11px;
+      color: #9CA3AF;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="header">
+      <h1>🎉 Dein Dossier ist fertig!</h1>
+      <p>Resovva.de – Intelligenter Fall-Assistent</p>
+    </div>
+
+    <div class="body">
+      <p>Hallo {{ user_name }},</p>
+
+      <p>
+        dein professionelles Rechtsdossier wurde erfolgreich erstellt und steht jetzt
+        zum Download bereit. Das Dossier enthält:
+      </p>
+
+      <ul style="margin-bottom: 14px; padding-left: 20px; color: #374151; line-height: 1.8;">
+        <li>Formelles Anschreiben an die Gegenseite</li>
+        <li>Vollständige, chronologisch geordnete Beweisübersicht</li>
+        <li>Alle hochgeladenen Originalbelege (nummeriert als Anlagen)</li>
+      </ul>
+
+      <div class="meta-box">
+        <strong>Fall-ID:</strong> {{ case_id }}<br/>
+        <strong>Erstellt am:</strong> {{ generated_at }}
+      </div>
+
+      <p>
+        Bitte logge dich in dein Resovva-Konto ein und klicke auf den Button, um das
+        Dossier sicher herunterzuladen:
+      </p>
+
+      <a href="{{ dashboard_url }}" class="cta-btn">Dossier jetzt herunterladen</a>
+
+      <p style="font-size: 12px; color: #9CA3AF;">
+        Der Download-Link ist nur für eingeloggte Nutzer zugänglich und durch eine zeitlich
+        begrenzte, sichere URL geschützt.
+      </p>
+    </div>
+
+    <div class="footer">
+      Du erhältst diese E-Mail, weil du ein Dossier über Resovva.de erstellt hast.<br/>
+      Resovva.de · Datenschutz · Impressum
+    </div>
+  </div>
+</body>
+</html>

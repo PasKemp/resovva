@@ -25,6 +25,8 @@ export type CaseStatusApi =
   | "TIMELINE_READY"
   | "PAYMENT_PENDING"
   | "PAID"
+  | "GENERATING_DOSSIER"
+  | "ERROR_GENERATION"
   | "COMPLETED";
 
 /** Deutsche Anzeigebezeichnungen für das UI */
@@ -132,13 +134,15 @@ export interface WithSetLoggedIn {
 // ── Mappers ───────────────────────────────────────────────────────────────────
 
 const STATUS_MAP: Record<CaseStatusApi, CaseStatus> = {
-  DRAFT:             "Entwurf",
-  WAITING_FOR_USER:  "Wartet auf Zahlung",
-  BUILDING_TIMELINE: "Entwurf",
-  TIMELINE_READY:    "Entwurf",
-  PAYMENT_PENDING:   "Zahlung ausstehend",
-  PAID:              "Abgeschlossen",
-  COMPLETED:         "Abgeschlossen",
+  DRAFT:              "Entwurf",
+  WAITING_FOR_USER:   "Wartet auf Zahlung",
+  BUILDING_TIMELINE:  "Entwurf",
+  TIMELINE_READY:     "Entwurf",
+  PAYMENT_PENDING:    "Zahlung ausstehend",
+  PAID:               "Abgeschlossen",
+  GENERATING_DOSSIER: "Abgeschlossen",
+  ERROR_GENERATION:   "Abgeschlossen",
+  COMPLETED:          "Abgeschlossen",
 };
 
 /** Wandelt das API-Case-Format in das UI-Case-Format um. */

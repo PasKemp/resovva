@@ -35,6 +35,11 @@ dependencies = [
     "resend>=2.0",
     # Payments (Epic 5 – Stripe Checkout)
     "stripe>=7.0",
+    # Dossier Generation (Epic 6)
+    "weasyprint>=60.0",
+    "Pillow>=10.0",
+    "jinja2>=3.1",
+    "reportlab>=4.0",
 ]
 
 [project.optional-dependencies]

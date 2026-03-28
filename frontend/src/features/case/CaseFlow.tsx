@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { colors, shadows, textStyles, typography } from "../../theme/tokens";
 import { Button, Icon } from "../../components";
 import { UploadStep } from "./steps/UploadStep";
@@ -262,6 +262,15 @@ export const CaseFlow = ({
   const hasCreatedRef   = useRef(false);
   const resolveResetRef = useRef<((v: boolean) => void) | null>(null);
 
+  const handleStep1ActionChange = useCallback((cfg: { label: string; disabled: boolean; handler: () => void }) => {
+    step1ActionRef.current = cfg.handler;
+    setStep1Btn({ label: cfg.label, disabled: cfg.disabled });
+  }, []);
+
+  const handleAnalysisStarted = useCallback(() => {
+    setAnalysisStarted(true);
+  }, []);
+
   // "Weiter" aktiv: Step 0 nur wenn Dateien vorhanden, Step 2 immer
   const canNext  = step === 0 ? uploadHasFiles : step === 2;
   const showNext = step === 0 || step === 2;
@@ -316,8 +325,8 @@ export const CaseFlow = ({
   }, [docs, selectedDocId]);
 
   const goTo = (i: StepIndex) => { if (i <= step) setStep(i); };
-  const next = () => setStep(s => Math.min(s + 1, 3) as StepIndex);
-  const back = () => setStep(s => Math.max(s - 1, 0) as StepIndex);
+  const next = useCallback(() => setStep(s => Math.min(s + 1, 3) as StepIndex), []);
+  const back = useCallback(() => setStep(s => Math.max(s - 1, 0) as StepIndex), []);
 
   const selectedDoc = docs.find(d => d.document_id === selectedDocId) ?? docs[0] ?? null;
 
@@ -423,12 +432,9 @@ export const CaseFlow = ({
               onBack={back}
               docs={docs}
               selectedDoc={selectedDoc}
-              onAnalysisStarted={() => setAnalysisStarted(true)}
+              onAnalysisStarted={handleAnalysisStarted}
               forceRefresh={forceRefresh}
-              onActionChange={cfg => {
-                step1ActionRef.current = cfg.handler;
-                setStep1Btn({ label: cfg.label, disabled: cfg.disabled });
-              }}
+              onActionChange={handleStep1ActionChange}
             />
           )}
           {step === 2 && <TimelineStep caseId={caseId} onNext={next} onBack={back} onGoToUpload={() => setStep(0)} />}

@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 
 import stripe  # type: ignore[import-untyped]
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -47,6 +47,7 @@ class CheckoutResponse(BaseModel):
 def create_checkout(
     case_id: str,
     current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> CheckoutResponse:
     """
@@ -68,15 +69,19 @@ def create_checkout(
     """
     case = get_owned_case(case_id, current_user, db)
 
-    # Bereits bezahlt – idempotent zurückgeben
-    if case.status == "PAID":
+    # Bereits in Generierung oder fertig – idempotent
+    if case.status in ("GENERATING_DOSSIER", "COMPLETED", "PAID"):
         return CheckoutResponse(checkout_url="")
 
-    # ── Dev-Modus: kein Stripe-Key → direkt PAID setzen ──────────────────────
+    # ── Dev-Modus: kein Stripe-Key → direkt GENERATING_DOSSIER setzen ──────────────
     if not settings.stripe_secret_key:
-        logger.info("Dev-Modus: Fall %s wird ohne Stripe direkt auf PAID gesetzt.", case_id)
-        case.status = "PAID"
+        logger.info(
+            "Dev-Modus: Fall %s direkt auf GENERATING_DOSSIER gesetzt (kein Stripe).", case_id
+        )
+        case.status = "GENERATING_DOSSIER"
         db.commit()
+        from app.workers.dossier_worker import run_dossier_generation
+        background_tasks.add_task(run_dossier_generation, case_id)
         return CheckoutResponse(checkout_url="")
 
     # ── Produktionsmodus: Stripe Checkout Session erstellen ──────────────────
@@ -122,6 +127,7 @@ def create_checkout(
 @router.post("/webhooks/stripe", status_code=200)
 async def stripe_webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     stripe_signature: str = Header(None, alias="stripe-signature"),
 ) -> dict[str, str]:
@@ -169,12 +175,12 @@ async def stripe_webhook(
 
         case = db.query(Case).filter(Case.id == case_id).first()
         if case:
-            # Idempotenz: bereits PAID → nichts tun
-            if case.status == "PAID":
-                logger.info("Webhook: Fall %s bereits PAID – übersprungen.", case_id)
+            # Idempotenz: bereits PAID oder weiter → nichts tun
+            if case.status in ("PAID", "GENERATING_DOSSIER", "COMPLETED"):
+                logger.info("Webhook: Fall %s bereits %s – übersprungen.", case_id, case.status)
                 return {"status": "ok"}
 
-            case.status = "PAID"
+            case.status = "GENERATING_DOSSIER"
             case.stripe_session_id = session.get("id")
 
             # Bonus: payment_intent für Buchhaltungs-Referenz persistieren
@@ -185,7 +191,15 @@ async def stripe_webhook(
                 case.extracted_data = extracted
 
             db.commit()
-            logger.info("Zahlung bestätigt: Fall %s → PAID (intent: %s).", case_id, payment_intent)
+            logger.info(
+                "Zahlung bestätigt: Fall %s → GENERATING_DOSSIER (intent: %s).",
+                case_id, payment_intent,
+            )
+
+            # Dossier-Generierung im Hintergrund starten (US-6.4)
+            from app.workers.dossier_worker import run_dossier_generation
+            background_tasks.add_task(run_dossier_generation, case_id)
+            logger.info("Webhook: DossierWorker für Case %s in BackgroundTask gestartet.", case_id)
         else:
             logger.warning("Stripe Webhook: Fall %s nicht gefunden.", case_id)
 

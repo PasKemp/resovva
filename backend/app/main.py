@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from app.api.v1 import auth, cases, checkout, documents, mobile_upload, timeline, users, workflows
+from app.api.v1 import auth, cases, checkout, documents, dossier, mobile_upload, timeline, users, workflows
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.infrastructure.database import create_all_tables
@@ -42,6 +42,7 @@ app.include_router(mobile_upload.router, prefix="/api/v1")
 app.include_router(users.router,         prefix="/api/v1")
 app.include_router(timeline.router,      prefix="/api/v1")
 app.include_router(checkout.router,      prefix="/api/v1")
+app.include_router(dossier.router,       prefix="/api/v1")
 
 
 @app.get("/health")

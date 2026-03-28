@@ -305,18 +305,34 @@ export const timelineApi = {
 
 // ── Dossier ───────────────────────────────────────────────────────────────────
 
-export interface DossierStatus {
-  progress:      number;
-  ready:         boolean;
-  download_url?: string;
+export type DossierGenerationStatus =
+  | "GENERATING_DOSSIER"
+  | "COMPLETED"
+  | "ERROR_GENERATION"
+  | "PAID"
+  | string;
+
+export interface DossierStatusResponse {
+  status:         DossierGenerationStatus;
+  download_url?:  string | null;
+  error_message?: string | null;
 }
 
 export const dossierApi = {
-  generate: (caseId: string) =>
-    apiFetch<{ job_id: string }>(`/api/v1/cases/${caseId}/dossier`, { method: "POST" }),
-
+  /**
+   * Pollt den Generierungs-Status des Dossiers.
+   * Wenn status === "COMPLETED" enthält download_url eine 5-Minuten-Presigned-URL.
+   */
   status: (caseId: string) =>
-    apiFetch<DossierStatus>(`/api/v1/cases/${caseId}/dossier/status`),
+    apiFetch<DossierStatusResponse>(`/api/v1/cases/${caseId}/dossier/status`),
+
+  /**
+   * Navigiert den Browser zum Download-Endpunkt (302-Redirect → Presigned S3 URL).
+   * Die tatsächliche S3-URL wird nie direkt an den Client zurückgegeben.
+   */
+  download: (caseId: string) => {
+    window.location.href = `${BASE_URL}/api/v1/cases/${caseId}/dossier/download`;
+  },
 };
 
 // ── User Profile (US-7.4) ─────────────────────────────────────────────────────

@@ -72,6 +72,11 @@ class Settings(BaseSettings):
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"
     s3_bucket_name: str = "resovva-docs"
+    # Öffentliche URL für Presigned-URLs (browser-erreichbar).
+    # In Docker: S3_ENDPOINT=http://minio:9000 (intern), aber Presigned-URLs
+    # müssen http://localhost:9000 enthalten damit der Browser sie aufrufen kann.
+    # Leer lassen → fällt auf s3_endpoint zurück.
+    s3_public_url: Optional[str] = None
 
     # Stripe (Epic 5 – Checkout / Payments)
     stripe_secret_key: Optional[str] = None       # sk_live_... or sk_test_...

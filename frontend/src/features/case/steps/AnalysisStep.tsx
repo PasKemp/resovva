@@ -541,6 +541,7 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
   const [isDirty,         setIsDirty]         = useState(false);
   const [showRerunConfirm, setShowRerunConfirm] = useState(false);
   const analysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastActionRef = useRef<string>(""); // JSON stringify of {label, disabled}
 
   const initExtraction = useCallback((r: ExtractionResult) => {
     setExtraction(r);
@@ -776,22 +777,32 @@ export const AnalysisStep: React.FC<AnalysisStepProps> = ({
 
   // Header-Button-State nach oben kommunizieren
   useEffect(() => {
+    let cfg: { label: string; disabled: boolean; handler: () => void };
+
     if (phase === "loading") {
-      onActionChange?.({ label: "Wird geladen…", disabled: true, handler: () => {} });
+      cfg = { label: "Wird geladen…", disabled: true, handler: () => {} };
     } else if (phase === "ocr") {
-      onActionChange?.({
+      cfg = {
         label:    starting ? "Wird gestartet…" : "KI-Analyse starten",
         disabled: !allOcrDone || starting,
         handler:  handleStart,
-      });
+      };
     } else if (phase === "analyzing") {
-      onActionChange?.({ label: "KI analysiert…", disabled: true, handler: () => {} });
+      cfg = { label: "KI analysiert…", disabled: true, handler: () => {} };
     } else {
-      onActionChange?.({
+      cfg = {
         label:    confirming ? "Wird gespeichert…" : "Bestätigen & weiter",
         disabled: !canConfirm || confirming,
         handler:  handleConfirm,
-      });
+      };
+    }
+
+    // Loop-Schutz: nur dann nach oben melden, wenn sich die visuelle Erscheinung (label/disabled) 
+    // tatsächlich geändert hat.
+    const sig = `${cfg.label}:${cfg.disabled}`;
+    if (sig !== lastActionRef.current) {
+      lastActionRef.current = sig;
+      onActionChange?.(cfg);
     }
   }, [phase, allOcrDone, starting, confirming, canConfirm, handleStart, handleConfirm, onActionChange]);
 

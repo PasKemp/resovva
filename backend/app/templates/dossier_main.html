@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dossier – {{ case_id }}</title>
+  <style>
+    /* ── Seiten-Setup (A4) ── */
+    @page {
+      size: A4;
+      margin: 2.2cm 2.2cm 2.5cm 2.2cm;
+
+      @top-right {
+        content: "Resovva.de – Dossier";
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 8pt;
+        color: #9CA3AF;
+      }
+      @bottom-center {
+        content: "Seite " counter(page) " von " counter(pages);
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 8pt;
+        color: #9CA3AF;
+      }
+    }
+
+    /* ── Reset ── */
+    *  { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 10pt;
+      line-height: 1.55;
+      color: #1F2937;
+      background: #fff;
+    }
+
+    /* ── Seitenumbrüche ── */
+    .page-break { page-break-before: always; }
+
+    /* ── Deckblatt ── */
+    .cover {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      justify-content: space-between;
+    }
+    .cover-logo {
+      font-size: 22pt;
+      font-weight: 700;
+      color: #FF6B35;
+      letter-spacing: -0.5px;
+    }
+    .cover-logo span { color: #1F2937; }
+    .cover-title {
+      font-size: 28pt;
+      font-weight: 700;
+      color: #1F2937;
+      line-height: 1.2;
+      margin-bottom: 12px;
+    }
+    .cover-subtitle {
+      font-size: 13pt;
+      color: #6B7280;
+    }
+    .cover-meta {
+      border-top: 2px solid #FF6B35;
+      padding-top: 16px;
+    }
+    .cover-meta p {
+      font-size: 9pt;
+      color: #6B7280;
+      margin-bottom: 4px;
+    }
+    .cover-meta strong { color: #1F2937; }
+    .cover-badge {
+      display: inline-block;
+      background: #FFF3ED;
+      border: 1px solid #FF6B35;
+      color: #FF6B35;
+      font-size: 8pt;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    /* ── Anschreiben ── */
+    .letter-header {
+      margin-bottom: 36px;
+    }
+    .letter-sender {
+      font-size: 8.5pt;
+      color: #6B7280;
+      border-bottom: 1px solid #E5E7EB;
+      padding-bottom: 4px;
+      margin-bottom: 20px;
+    }
+    .letter-recipient {
+      font-size: 10pt;
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+    .letter-date {
+      text-align: right;
+      font-size: 9pt;
+      color: #6B7280;
+      margin-bottom: 24px;
+    }
+    .letter-subject {
+      font-size: 11pt;
+      font-weight: 700;
+      color: #1F2937;
+      margin-bottom: 16px;
+      border-bottom: 2px solid #1F2937;
+      padding-bottom: 4px;
+    }
+    .letter-body p {
+      margin-bottom: 10px;
+      text-align: justify;
+      hyphens: auto;
+    }
+    .letter-body .highlight-box {
+      border-left: 3px solid #FF6B35;
+      padding: 10px 14px;
+      background: #FFF9F5;
+      margin: 16px 0;
+    }
+    .letter-body .highlight-box p { margin-bottom: 4px; }
+    .letter-body .highlight-box strong { color: #FF6B35; }
+    .letter-body table.facts {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 9.5pt;
+    }
+    .letter-body table.facts th {
+      background: #F9FAFB;
+      border: 1px solid #E5E7EB;
+      padding: 6px 10px;
+      text-align: left;
+      font-weight: 700;
+      color: #374151;
+      width: 38%;
+    }
+    .letter-body table.facts td {
+      border: 1px solid #E5E7EB;
+      padding: 6px 10px;
+      color: #1F2937;
+    }
+    .signature-block {
+      margin-top: 36px;
+      font-size: 9.5pt;
+    }
+    .signature-block p { margin-bottom: 3px; }
+
+    /* ── Chronologie ── */
+    .section-heading {
+      font-size: 13pt;
+      font-weight: 700;
+      color: #1F2937;
+      border-bottom: 2px solid #FF6B35;
+      padding-bottom: 5px;
+      margin-bottom: 18px;
+    }
+    table.timeline {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9pt;
+    }
+    table.timeline thead tr {
+      background: #1F2937;
+      color: #fff;
+    }
+    table.timeline thead th {
+      padding: 8px 10px;
+      text-align: left;
+      font-weight: 700;
+    }
+    table.timeline tbody tr {
+      page-break-inside: avoid;
+      border-bottom: 1px solid #E5E7EB;
+    }
+    table.timeline tbody tr:nth-child(even) {
+      background: #F9FAFB;
+    }
+    table.timeline tbody tr.gap-row {
+      background: #FFFBEB;
+      border-left: 3px solid #F59E0B;
+    }
+    table.timeline tbody tr.gap-row td {
+      color: #92400E;
+      font-style: italic;
+    }
+    table.timeline tbody td {
+      padding: 7px 10px;
+      vertical-align: top;
+      color: #374151;
+    }
+    table.timeline tbody td.date-col {
+      white-space: nowrap;
+      font-weight: 600;
+      color: #1F2937;
+      width: 100px;
+    }
+    table.timeline tbody td.src-col {
+      color: #6B7280;
+      font-size: 8pt;
+      width: 120px;
+    }
+
+    /* ── Footer-Text ── */
+    .doc-footer {
+      margin-top: 40px;
+      padding-top: 12px;
+      border-top: 1px solid #E5E7EB;
+      font-size: 8pt;
+      color: #9CA3AF;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SEITE 1: DECKBLATT
+═══════════════════════════════════════════════════════════ -->
+<div class="cover">
+  <div>
+    <div class="cover-logo">Resovva<span>.</span></div>
+    <div style="margin-top: 8px; margin-bottom: 40px;">
+      <span class="cover-badge">Juristisches Dossier</span>
+    </div>
+    <div class="cover-title">Vollständige<br/>Beweisdokumentation</div>
+    <div class="cover-subtitle" style="margin-top: 8px;">
+      Erstellt für: <strong>{{ user.first_name }} {{ user.last_name }}</strong>
+    </div>
+  </div>
+
+  <div class="cover-meta">
+    <p>Fall-ID: <strong>{{ case_id }}</strong></p>
+    <p>Erstellt am: <strong>{{ generated_at }}</strong></p>
+    {% if opponent_name %}
+    <p>Streitpartei: <strong>{{ opponent_name }}</strong></p>
+    {% endif %}
+    {% if opponent_category %}
+    <p>Kategorie: <strong>{{ opponent_category_label }}</strong></p>
+    {% endif %}
+    <p style="margin-top: 12px; font-size: 8pt; color: #9CA3AF;">
+      Dieses Dokument wurde automatisch erstellt durch Resovva.de.<br/>
+      Alle enthaltenen Informationen basieren auf den vom Nutzer hochgeladenen Originalbelegen.
+    </p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SEITE 2: ANSCHREIBEN
+═══════════════════════════════════════════════════════════ -->
+<div class="page-break">
+  <div class="letter-header">
+    <!-- Absenderzeile (kleiner grauer Text über Empfänger) -->
+    <div class="letter-sender">
+      {{ user.first_name }} {{ user.last_name }} · {{ user.street }} · {{ user.postal_code }} {{ user.city }}
+    </div>
+
+    <!-- Empfänger -->
+    <div class="letter-recipient">
+      <strong>{{ opponent_name | default("Streitpartei") }}</strong><br/>
+      {% if opponent_category %}{{ opponent_category_label }}<br/>{% endif %}
+    </div>
+
+    <!-- Datum -->
+    <div class="letter-date">{{ generated_at }}</div>
+
+    <!-- Betreff -->
+    <div class="letter-subject">
+      Betreff: Beschwerde &amp; Forderungsdokumentation
+      {% if meter_number %} | Zähler-Nr. {{ meter_number }}{% endif %}
+      {% if malo_id %} | MaLo-ID {{ malo_id }}{% endif %}
+    </div>
+  </div>
+
+  <div class="letter-body">
+    <p>Sehr geehrte Damen und Herren,</p>
+
+    <p>
+      hiermit übersende ich Ihnen meine vollständige Dokumentation bezüglich des oben
+      genannten Sachverhalts. Die beigefügten Anlagen umfassen sämtliche relevanten
+      Originalbelege, die meine Forderung belegen.
+    </p>
+
+    {% if dispute_amount %}
+    <div class="highlight-box">
+      <p><strong>Streitbetrag:</strong></p>
+      <p>{{ "%.2f"|format(dispute_amount) }} €</p>
+    </div>
+    {% endif %}
+
+    <!-- Kerndaten-Tabelle -->
+    <table class="facts">
+      <tbody>
+        {% if meter_number %}
+        <tr>
+          <th>Zählernummer</th>
+          <td>{{ meter_number }}</td>
+        </tr>
+        {% endif %}
+        {% if malo_id %}
+        <tr>
+          <th>Marktlokations-ID (MaLo)</th>
+          <td>{{ malo_id }}</td>
+        </tr>
+        {% endif %}
+        {% if network_operator %}
+        <tr>
+          <th>Netzbetreiber</th>
+          <td>{{ network_operator }}</td>
+        </tr>
+        {% endif %}
+        {% if dispute_amount %}
+        <tr>
+          <th>Streitbetrag</th>
+          <td>{{ "%.2f"|format(dispute_amount) }} €</td>
+        </tr>
+        {% endif %}
+        <tr>
+          <th>Anzahl der Belege</th>
+          <td>{{ document_count }} Dokument(e)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      Die chronologische Auflistung aller relevanten Ereignisse finden Sie auf den
+      folgenden Seiten. Die Originaldokumente sind als nummerierte Anlagen beigefügt.
+    </p>
+
+    <p>
+      Ich fordere Sie hiermit auf, die genannten Punkte zu prüfen und mir innerhalb
+      einer angemessenen Frist von 14 Tagen eine schriftliche Stellungnahme zukommen
+      zu lassen.
+    </p>
+
+    <div class="signature-block">
+      <p>Mit freundlichen Grüßen</p>
+      <br/><br/>
+      <p><strong>{{ user.first_name }} {{ user.last_name }}</strong></p>
+      <p>{{ user.street }}</p>
+      <p>{{ user.postal_code }} {{ user.city }}</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SEITE 3+: CHRONOLOGIE
+═══════════════════════════════════════════════════════════ -->
+<div class="page-break">
+  <div class="section-heading">Chronologische Übersicht</div>
+
+  {% if timeline_events %}
+  <table class="timeline">
+    <thead>
+      <tr>
+        <th>Datum</th>
+        <th>Ereignis</th>
+        <th>Quelle</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for event in timeline_events %}
+      <tr class="{% if event.is_gap %}gap-row{% endif %}">
+        <td class="date-col">
+          {% if event.event_date %}
+            {{ event.event_date }}
+          {% else %}
+            –
+          {% endif %}
+        </td>
+        <td>
+          {% if event.is_gap %}⚠ {% endif %}{{ event.description }}
+        </td>
+        <td class="src-col">
+          {% if event.source_type == "user" %}Nutzer{% else %}KI-Analyse{% endif %}
+          {% if event.source_doc_id %}(Anlage {{ loop.index }}){% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color: #6B7280; font-style: italic;">Keine Chronologie-Ereignisse vorhanden.</p>
+  {% endif %}
+
+  <div class="doc-footer">
+    Dieses Dossier wurde erstellt mit Resovva.de – Intelligenter Fall-Assistent für Energieverbraucher.<br/>
+    Alle Rechte vorbehalten. Erstellt am {{ generated_at }}. Fall-ID: {{ case_id }}
+  </div>
+</div>
+
+</body>
+</html>

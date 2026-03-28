@@ -97,6 +97,7 @@ async def _node_confirm(state: AgentState) -> AgentState:
     """
     from app.domain.models.db import Case
     from app.infrastructure.database import get_db_context
+    from datetime import datetime, timezone
 
     case_id = state["case_id"]
     messages = state.get("messages") or []
@@ -118,6 +119,7 @@ async def _node_confirm(state: AgentState) -> AgentState:
         "source_snippets": state.get("source_snippets") or {},
         "source_doc_ids": state.get("source_doc_ids") or {},
         "confirmed": True,
+        "extracted_at": datetime.now(timezone.utc).isoformat(),
     }
 
     with get_db_context() as db:

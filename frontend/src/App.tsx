@@ -83,7 +83,7 @@ export default function App() {
       case "complete-profile":  return <CompleteProfile setPage={setPage} />;
       case "dashboard":         return <Dashboard       setPage={setPage} openCase={openCase} />;
       case "case":              return <CaseFlow        setPage={setPage} caseId={activeCaseId} initialStep={activeCaseStep} onStepChange={setActiveCaseStep} onCaseCreated={setActiveCaseId} />;
-      case "dossier":           return <DossierScreen   setPage={setPage} />;
+      case "dossier":           return <DossierScreen   setPage={setPage} caseId={activeCaseId} />;
       case "preise":            return <Preise          setPage={setPage} />;
       case "hilfe":             return <Landing         setPage={setPage} />;
       case "profile":           return <ProfilePage     setPage={setPage} />;
