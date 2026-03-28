@@ -24,7 +24,7 @@ Resovva führt Nutzer durch Streitigkeiten mit Stromanbietern und Netzbetreibern
 ### Kern-Workflow
 
 | Schritt | Beschreibung |
-|---|---|
+| --- | --- |
 | **1. Ingestion** | PDF-Upload → Textextraktion (pypdf → Azure Fallback) |
 | **2. PII-Masking** | IBAN, E-Mail vor LLM-Transfer schwärzen |
 | **3. Entitäten-Extraktion** | MaLo-ID, Zählernummer, Beträge, Daten per GPT-4o |
@@ -37,13 +37,13 @@ Resovva führt Nutzer durch Streitigkeiten mit Stromanbietern und Netzbetreibern
 ## 2. Implementierungsstand
 
 | Epic | Beschreibung | Status |
-|---|---|---|
-| **Epic 1** | Auth, Sessions, Multi-Case-Dashboard, DSGVO Hard-Delete | ✅ Vollständig |
+| --- | --- | --- |
+| **Epic 1** | Auth, Sessions, Multi-Case Dashboard, DSGVO Hard-Delete | ✅ Vollständig |
 | **Epic 2** | Dokument-Upload, OCR, PII-Masking, QR-Code-Upload | ✅ Vollständig |
 | **Epic 3** | LangGraph-Agent, RAG, Entitäten-Extraktion, MaStR-Lookup, HiTL | ✅ Vollständig |
 | **Epic 4** | Chronologie-Aufbau, Gap-Analysis, Nutzer-Feedback-Loop | ✅ Vollständig |
 | **Epic 5** | Stripe-Zahlung (Pay-per-Case), Paywall-UI, Retry-Flow | ✅ Vollständig |
-| **Epic 6** | PDF-Dossier-Generierung | 📋 Backlog |
+| **Epic 6** | PDF-Dossier-Generierung & Beweismittel-Kompilierung | ✅ Vollständig |
 
 ---
 
@@ -54,18 +54,20 @@ Resovva führt Nutzer durch Streitigkeiten mit Stromanbietern und Netzbetreibern
 - **Python 3.12+** · **FastAPI** · **SQLAlchemy** · **PostgreSQL 15**
 - **LangGraph** – stateful KI-Agent (Knoten: ingest → extract → chronology → gaps)
 - **GPT-4o** – Azure OpenAI (Produktion, DSGVO) · Standard OpenAI (Entwicklung)
+- **WeasyPrint & ReportLab** – Professionelle PDF-Generierung & Stamping
 - **Qdrant** – Vektordatenbank für Dokument-Embeddings
 - **MinIO** – S3-kompatibler Objektspeicher (lokal); AWS S3 / Azure Blob (Produktion)
 
 ### Frontend
 
 - **React 18** · **TypeScript** · **Vite** · **Material-UI**
+- **Vitest & MSW** – Umfassende Testing-Infrastruktur
 
 ### DevOps
 
 - **Docker Compose** – lokale Entwicklungsumgebung
 - **Kubernetes** – Produktions-Deployment (`k8s/`)
-- **GitHub Actions** – CI/CD (pytest → Docker Build → Push zu GHCR)
+- **GitHub Actions** – CI/CD (pytest/vitest → Docker Build → Push zu GHCR)
 
 ---
 
@@ -131,7 +133,7 @@ npm run dev
 ### Dienste & URLs
 
 | Dienst | URL | Zugangsdaten |
-|---|---|---|
+| --- | --- | --- |
 | **Frontend** | <http://localhost:5173> | – |
 | **Backend API** | <http://localhost:8000> | – |
 | **Swagger / Docs** | <http://localhost:8000/docs> | – |
@@ -144,56 +146,42 @@ npm run dev
 
 ## 5. Tests
 
+### Backend Tests (pytest)
+
 Voraussetzung: PostgreSQL läuft (via Docker Compose). Die Test-DB `resovva_test` wird automatisch angelegt.
 
 ```bash
 cd backend
-
 # Alle Tests
 pytest tests/ -v
-
-# Nur ein Modul
-pytest tests/test_auth.py -v
-
-# Einzelner Test
-pytest tests/test_auth.py::test_login_success -v
 ```
 
-### Test-Struktur
+### Frontend Tests (Vitest)
 
-| Datei | Inhalt | Tests |
-|---|---|---|
-| `test_security.py` | `hash_password`, JWT, Reset-Token, PII-Masking | 25 |
-| `test_auth.py` | Register, Login, Logout, `/me`, Passwort-Reset | 25 |
-| `test_cases.py` | Dashboard, Tenant-Isolation, DSGVO Hard-Delete | 15 |
-| `test_case_flow.py` | Upload, Analyse, HiTL-Bestätigung, Chronologie-Flow | ~30 |
-| `test_epic3.py` | RAG, Extraktion, MaStR-Lookup, Graph-Resume | ~20 |
-| `test_epic4.py` | Event-Extraktion, Master-Chronologie, manuell, Refresh | ~25 |
-| `test_epic5.py` | Checkout, Webhook, Retry, Stripe-Mock | 17 |
-| `test_api.py` | Health-Check | 1 |
-
-Ohne laufendes PostgreSQL werden DB-Tests automatisch übersprungen (`SKIPPED`), Security-Unit-Tests laufen weiterhin durch.
-
-Eigene Test-DB-URL setzen:
+Die Frontend-Tests nutzen MSW (Mock Service Worker) zur API-Isolation.
 
 ```bash
-TEST_DATABASE_URL=postgresql://user:pass@host:5432/mydb pytest tests/ -v
+cd frontend
+# Alle Tests ausführen
+npm test
+# TDD-Mode (Watch)
+npm run test:watch
 ```
 
-### Linting
+### Test-Übersicht
 
-```bash
-cd backend
-ruff check app
-```
+| Bereich | Tool | Umfang |
+| --- | --- | --- |
+| **Backend** | pytest | API-Integration, LangGraph-Nodes, Security, Stripe-Webhooks |
+| **Frontend** | Vitest | Component-Testing (MUI), API-Mocking (MSW), Case-Flow |
 
 ---
 
 ## 6. Dokumentation
 
 | Dokument | Inhalt |
-|---|---|
-| [docs/00_VISION.md](docs/00_VISION.md) | Produktvision, MVP-Scope, Leitplanken |
-| [docs/01_TECHNICAL_ARCHITECTURE.md](docs/01_TECHNICAL_ARCHITECTURE.md) | Repo-Struktur, Stack, Dev-Workflow |
-| [docs/02_API-DESIGN.md](docs/02_API-DESIGN.md) | API-Endpunkte (Spezifikation) |
+| --- | --- |
+| [docs/VISION.md](docs/VISION.md) | Produktvision, MVP-Scope, Leitplanken |
+| [docs/TECHNICAL_ARCHITECTURE.md](docs/TECHNICAL_ARCHITECTURE.md) | Repo-Struktur, Stack, Dev-Workflow |
+| [docs/API-DESIGN.md](docs/API-DESIGN.md) | API-Endpunkte (Spezifikation) |
 | [docs/epics/](docs/epics/) | EPIC1–EPIC6 mit User Stories und Akzeptanzkriterien |
