@@ -8,8 +8,6 @@ type-safe way to access application settings.
 from functools import lru_cache
 from typing import Optional
 
-from typing import Optional
-
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -37,12 +35,14 @@ class Settings(BaseSettings):
 
     # ── App ───────────────────────────────────────────────────────────────────
     app_name: str = "Resovva.de"
-    debug: bool = False
+    debug: bool = True
 
     # ── Database ──────────────────────────────────────────────────────────────
     database_url: Optional[str] = None
 
     # ── Auth & Security ───────────────────────────────────────────────────────
+    secret_key: str = "change-me-in-production-use-a-random-256bit-key"
+    jwt_expire_days: int = 7
     allowed_origins: str = "http://localhost:5173"
 
     @field_validator("secret_key")

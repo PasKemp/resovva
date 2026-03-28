@@ -68,7 +68,8 @@ class ForgotPasswordRequest(BaseModel):
     """Email address for password reset request."""
     email: EmailStr
 
-
+class ResetPasswordRequest(BaseModel):
+    """Token and new password for reset completion."""
     token: str
     password: str = Field(..., min_length=8)
 

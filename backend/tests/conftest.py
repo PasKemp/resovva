@@ -128,7 +128,7 @@ def test_user(db) -> User:
     """Creates a test user directly in the database (no HTTP roundtrip)."""
     user = User(
         email="test@example.com",
-        hashed_password=hash_password("sicheresPasswort123"),
+        hashed_password=hash_password("SecurePassword123"),
         accepted_terms=True,
     )
     db.add(user)

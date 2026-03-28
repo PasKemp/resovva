@@ -37,7 +37,7 @@ def test_me_unauthenticated(client):
 def test_me_after_login(client, test_user):
     """Profile should be accessible immediately after successful login."""
     client.post("/api/v1/auth/login", json={
-        "email": "test@example.com", "password": "sicheresPasswort123",
+        "email": "test@example.com", "password": "SecurePassword123",
     })
     res = client.get("/api/v1/auth/me")
     assert res.status_code == 200
@@ -47,7 +47,7 @@ def test_me_after_login(client, test_user):
 def test_me_after_logout(client, test_user):
     """Profile access should be revoked immediately after logout."""
     client.post("/api/v1/auth/login", json={
-        "email": "test@example.com", "password": "sicheresPasswort123",
+        "email": "test@example.com", "password": "SecurePassword123",
     })
     client.post("/api/v1/auth/logout")
     res = client.get("/api/v1/auth/me")
@@ -69,7 +69,7 @@ def test_register_success(client):
     """Valid registration should return HTTP 201 and set a JWT cookie."""
     res = client.post("/api/v1/auth/register", json={
         "email":          "new@example.com",
-        "password":       "sicheresPasswort123",
+        "password":       "SecurePassword123",
         "accepted_terms": True,
         **_REGISTER_PROFILE,
     })
@@ -93,7 +93,7 @@ def test_register_terms_not_accepted(client):
     """Failing to accept terms should be blocked (HTTP 422)."""
     res = client.post("/api/v1/auth/register", json={
         "email":          "new@example.com",
-        "password":       "sicheresPasswort123",
+        "password":       "SecurePassword123",
         "accepted_terms": False,
     })
     assert res.status_code == 422
@@ -103,7 +103,7 @@ def test_register_duplicate_email(client, test_user):
     """Registering an existing email should return a Conflict error (HTTP 409)."""
     res = client.post("/api/v1/auth/register", json={
         "email":          test_user.email,
-        "password":       "anotherPassword123",
+        "password":       "AnotherPassword123",
         "accepted_terms": True,
         **_REGISTER_PROFILE,
     })
@@ -115,7 +115,7 @@ def test_register_auto_login(client):
     """Users should be automatically logged in after registration."""
     res = client.post("/api/v1/auth/register", json={
         "email":          "autoLogin@example.com",
-        "password":       "sicheresPasswort123",
+        "password":       "SecurePassword123",
         "accepted_terms": True,
         **_REGISTER_PROFILE,
     })
@@ -131,7 +131,7 @@ def test_login_success(client, test_user):
     """Correct credentials should grant access and set session cookie."""
     res = client.post("/api/v1/auth/login", json={
         "email":    "test@example.com",
-        "password": "sicheresPasswort123",
+        "password": "SecurePassword123",
     })
     assert res.status_code == 200
     assert res.json()["status"] == "success"
@@ -173,7 +173,7 @@ def test_login_grants_access_to_protected_routes(client, test_user):
     """Session cookie should allow access to protected API resources."""
     client.post("/api/v1/auth/login", json={
         "email":    "test@example.com",
-        "password": "sicheresPasswort123",
+        "password": "SecurePassword123",
     })
     res = client.get("/api/v1/cases")
     assert res.status_code == 200
@@ -184,7 +184,7 @@ def test_login_grants_access_to_protected_routes(client, test_user):
 def test_logout_success(client, test_user):
     """Authenticated users should be able to end their session."""
     client.post("/api/v1/auth/login", json={
-        "email": "test@example.com", "password": "sicheresPasswort123",
+        "email": "test@example.com", "password": "SecurePassword123",
     })
     res = client.post("/api/v1/auth/logout")
     assert res.status_code == 200
@@ -194,7 +194,7 @@ def test_logout_success(client, test_user):
 def test_logout_revokes_access(client, test_user):
     """Session cookies must be invalidated upon logout."""
     client.post("/api/v1/auth/login", json={
-        "email": "test@example.com", "password": "sicheresPasswort123",
+        "email": "test@example.com", "password": "SecurePassword123",
     })
     client.post("/api/v1/auth/logout")
     res = client.get("/api/v1/cases")
@@ -242,20 +242,20 @@ def test_reset_password_valid_token(client, db, test_user):
 
     res = client.post("/api/v1/auth/reset-password", json={
         "token":    raw_token,
-        "password": "newPassword456",
+        "password": "NewPassword456",
     })
     assert res.status_code == 200
     assert res.json()["status"] == "success"
 
     # Old password fails
     old_login = client.post("/api/v1/auth/login", json={
-        "email": test_user.email, "password": "sicheresPasswort123",
+        "email": test_user.email, "password": "SecurePassword123",
     })
     assert old_login.status_code == 401
 
     # New one works
     new_login = client.post("/api/v1/auth/login", json={
-        "email": test_user.email, "password": "newPassword456",
+        "email": test_user.email, "password": "NewPassword456",
     })
     assert new_login.status_code == 200
 
@@ -271,7 +271,7 @@ def test_reset_password_expired_token(client, db, test_user):
     db.commit()
 
     res = client.post("/api/v1/auth/reset-password", json={
-        "token": raw_token, "password": "newPassword456",
+        "token": raw_token, "password": "NewPassword456",
     })
     assert res.status_code in (400, 401)
 
@@ -279,7 +279,7 @@ def test_reset_password_expired_token(client, db, test_user):
 def test_reset_password_wrong_token(client):
     """Invalid reset tokens must be rejected."""
     res = client.post("/api/v1/auth/reset-password", json={
-        "token": "invalid-token-xyz123", "password": "newPassword456",
+        "token": "invalid-token-xyz123", "password": "NewPassword456",
     })
     assert res.status_code in (400, 401)
 
@@ -296,7 +296,7 @@ def test_reset_password_single_use(client, db, test_user):
     db.commit()
 
     res = client.post("/api/v1/auth/reset-password", json={
-        "token": raw_token, "password": "newPassword456",
+        "token": raw_token, "password": "NewPassword456",
     })
     assert res.status_code in (400, 401)
 
