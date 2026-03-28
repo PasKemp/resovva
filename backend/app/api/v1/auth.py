@@ -1,27 +1,30 @@
 """
-Auth Router – Epic 1: User Onboarding & Session Management.
+Authentication Router.
 
-Endpunkte:
-  POST /auth/register       – Registrierung + automatischer Login
-  POST /auth/login          – Login (mit Brute-Force-Schutz: 5/15min)
-  POST /auth/logout         – Session-Cookie löschen
-  POST /auth/forgot-password – Reset-Token generieren + Mail senden
-  POST /auth/reset-password  – Passwort mit Token zurücksetzen
-
-Session-Management: JWT in HttpOnly + Secure + SameSite=Lax Cookie.
-Brute-Force-Schutz: slowapi Rate Limiting auf /login (5 Versuche/15min/IP).
+Handles user registration, login, logout, and password resets.
+Implements session management via HttpOnly cookies and brute-force protection.
 """
 
 import logging
-import re
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import CurrentUser
+from app.api.v1.schemas.auth import (
+    ForgotPasswordRequest,
+    LoginRequest,
+    LoginResponse,
+    LogoutResponse,
+    MeResponse,
+    MessageResponse,
+    RegisterRequest,
+    RegisterResponse,
+    ResetPasswordRequest,
+    StatusMessageResponse,
+)
+from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.core.security import (
     create_access_token,
@@ -37,152 +40,55 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-# JWT-Cookie-Konfiguration
+# JWT Cookie Configuration
 COOKIE_NAME = "access_token"
-COOKIE_MAX_AGE = 7 * 24 * 60 * 60  # 7 Tage in Sekunden
+COOKIE_MAX_AGE = 7 * 24 * 60 * 60  # 7 days in seconds
 
 
 def _set_auth_cookie(response: Response, token: str) -> None:
-    """Setzt das HttpOnly-Session-Cookie mit dem JWT."""
+    """
+    Set the HttpOnly session cookie with the JWT.
+
+    Args:
+        response: The FastAPI response object.
+        token: The signed JWT string.
+    """
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
         max_age=COOKIE_MAX_AGE,
         httponly=True,
-        samesite="lax",
-        # secure=True,  # In Production aktivieren (HTTPS erforderlich)
+        samesite="strict",
+        # secure=True,  # Enable in production (requires HTTPS)
     )
-
-
-# ── Request / Response Schemas ────────────────────────────────────────────────
-
-
-class RegisterRequest(BaseModel):
-    email: EmailStr
-    password: str
-    accepted_terms: bool
-    # Pflicht-Profildaten (US-7.3) – für rechtssicheres Dossier benötigt
-    first_name: str
-    last_name: str
-    street: str
-    postal_code: str
-    city: str
-
-    @field_validator("password")
-    @classmethod
-    def password_min_length(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("Passwort muss mindestens 8 Zeichen lang sein.")
-        return v
-
-    @field_validator("accepted_terms")
-    @classmethod
-    def terms_must_be_accepted(cls, v: bool) -> bool:
-        if not v:
-            raise ValueError("AGB und Datenschutzerklärung müssen akzeptiert werden.")
-        return v
-
-    @field_validator("postal_code")
-    @classmethod
-    def postal_code_format(cls, v: str) -> str:
-        if not re.match(r"^\d{5}$", v.strip()):
-            raise ValueError("PLZ muss genau 5 Ziffern haben (z.B. 12345).")
-        return v.strip()
-
-    @field_validator("first_name", "last_name", "street", "city")
-    @classmethod
-    def not_empty(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("Pflichtfeld darf nicht leer sein.")
-        return v.strip()
-
-
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
-
-
-class ForgotPasswordRequest(BaseModel):
-    email: EmailStr
-
-
-class ResetPasswordRequest(BaseModel):
-    token: str
-    password: str
-
-    @field_validator("password")
-    @classmethod
-    def password_min_length(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("Passwort muss mindestens 8 Zeichen lang sein.")
-        return v
-
-
-# ── Response Schemas ──────────────────────────────────────────────────────────
-
-
-class RegisterResponse(BaseModel):
-    """Response für POST /auth/register."""
-
-    status: str
-    user_id: str
-    message: str
-
-
-class LoginResponse(BaseModel):
-    """Response für POST /auth/login."""
-
-    status: str
-    user_id: str
-
-
-class MeResponse(BaseModel):
-    """Response für GET /auth/me."""
-
-    user_id: str
-    email: str
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    street: Optional[str] = None
-    postal_code: Optional[str] = None
-    city: Optional[str] = None
-    profile_complete: bool
-
-
-class LogoutResponse(BaseModel):
-    """Response für POST /auth/logout."""
-
-    status: str
-    message: str
-
-
-class MessageResponse(BaseModel):
-    """Generische Nachrichtenantwort (forgot-password)."""
-
-    message: str
-
-
-class StatusMessageResponse(BaseModel):
-    """Response mit Status und Nachricht (reset-password)."""
-
-    status: str
-    message: str
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.post("/register", status_code=201, response_model=RegisterResponse)
-def register(body: RegisterRequest, response: Response, db: Session = Depends(get_db)) -> RegisterResponse:
+def register(
+    body: RegisterRequest,
+    response: Response,
+    db: Session = Depends(get_db)
+) -> RegisterResponse:
     """
-    Legt neuen Nutzer an und setzt direkt das Session-Cookie (kein separater Login nötig).
+    Register a new user and set the session cookie.
 
-    Gibt generische Fehlermeldung bei bereits registrierter E-Mail zurück,
-    um Account-Enumeration zu verhindern.
+    Args:
+        body: Registration details including profile data.
+        response: FastAPI response object for cookie setting.
+        db: Database session.
+
+    Returns:
+        RegisterResponse: Status and created user ID.
+
+    Raises:
+        HTTPException: If the email is already in use (Conflict 409).
     """
-    # Prüfen ob E-Mail bereits existiert (generische Meldung – kein Enumeration-Leak)
     existing = db.query(User).filter(User.email == body.email).first()
     if existing:
-        raise HTTPException(status_code=409, detail="E-Mail wird bereits verwendet.")
+        logger.warning("Registration failed: email already exists", extra={"email": body.email})
+        raise HTTPException(status_code=409, detail="Email already registered.")
 
     user = User(
         email=body.email,
@@ -201,48 +107,68 @@ def register(body: RegisterRequest, response: Response, db: Session = Depends(ge
     token = create_access_token(str(user.id))
     _set_auth_cookie(response, token)
 
-    logger.info("Neuer Nutzer registriert: %s", user.id)
+    logger.info("New user registered", extra={"user_id": str(user.id)})
     return RegisterResponse(
         status="success",
         user_id=str(user.id),
-        message="Registrierung erfolgreich. Du bist eingeloggt.",
+        message="Registration successful. You are now logged in.",
     )
 
 
 @router.post("/login", response_model=LoginResponse)
 @limiter.limit("5/15 minutes")
-def login(request: Request, body: LoginRequest, response: Response, db: Session = Depends(get_db)) -> LoginResponse:
+def login(
+    request: Request,
+    body: LoginRequest,
+    response: Response,
+    db: Session = Depends(get_db)
+) -> LoginResponse:
     """
-    Prüft Credentials und setzt Session-Cookie.
-    Rate-Limit: max. 5 Versuche pro IP in 15 Minuten (Brute-Force-Schutz).
+    Verify credentials and set the session cookie.
 
-    Gibt neutrale Fehlermeldung zurück (kein Account-Enumeration-Leak).
+    Includes rate limiting (5 attempts per 15 mins per IP) to prevent brute force.
+
+    Args:
+        request: FastAPI request (used by rate limiter).
+        body: Login credentials.
+        response: FastAPI response for cookie setting.
+        db: Database session.
+
+    Returns:
+        LoginResponse: Status and user ID.
+
+    Raises:
+        HTTPException: If credentials are invalid (Unauthorized 401).
     """
-    # Neutrale Fehlermeldung – egal ob User nicht existiert oder Passwort falsch
-    _auth_error = HTTPException(
+    auth_error = HTTPException(
         status_code=401,
-        detail="E-Mail oder Passwort falsch.",
+        detail="Invalid email or password.",
     )
 
     user = db.query(User).filter(User.email == body.email).first()
     if not user or not verify_password(body.password, user.hashed_password):
-        raise _auth_error
+        logger.warning("Login failed", extra={"email": body.email})
+        raise auth_error
 
     token = create_access_token(str(user.id))
     _set_auth_cookie(response, token)
 
+    logger.info("User logged in", extra={"user_id": str(user.id)})
     return LoginResponse(status="success", user_id=str(user.id))
 
 
 @router.get("/me", response_model=MeResponse)
 def me(current_user: CurrentUser) -> MeResponse:
     """
-    Gibt die Daten des aktuell eingeloggten Nutzers zurück.
-    Wird vom Frontend beim App-Start aufgerufen, um den Session-Status zu prüfen.
-    401 wenn kein gültiges Cookie vorhanden.
+    Retrieve data for the currently authenticated user.
 
-    profile_complete: True wenn alle Pflichtfelder (US-7.3) ausgefüllt sind.
-    Ist False bei Bestandsnutzern ohne Profildaten → Frontend leitet zu /complete-profile.
+    Used by the frontend on application load to check session status.
+
+    Args:
+        current_user: The authenticated User model instance from dependency.
+
+    Returns:
+        MeResponse: User profile and session status.
     """
     profile_complete = bool(
         current_user.first_name and current_user.last_name and
@@ -262,29 +188,46 @@ def me(current_user: CurrentUser) -> MeResponse:
 
 @router.post("/logout", response_model=LogoutResponse)
 def logout(response: Response, _: CurrentUser) -> LogoutResponse:
-    """Löscht das Session-Cookie und beendet die Session."""
+    """
+    Clear the session cookie and terminate the session.
+
+    Args:
+        response: FastAPI response object.
+        _: Current user (ensures user is logged in).
+
+    Returns:
+        LogoutResponse: Status and success message.
+    """
     response.delete_cookie(key=COOKIE_NAME, samesite="lax")
-    return LogoutResponse(status="success", message="Erfolgreich abgemeldet.")
+    return LogoutResponse(status="success", message="Logged out successfully.")
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
-def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)) -> MessageResponse:
+def forgot_password(
+    body: ForgotPasswordRequest,
+    db: Session = Depends(get_db)
+) -> MessageResponse:
     """
-    Generiert Reset-Token und sendet E-Mail via Resend.
+    Generate a reset token and send an email notification.
 
-    Gibt immer dieselbe Antwort zurück – unabhängig ob E-Mail registriert ist
-    (verhindert Enumeration).
+    Always returns a generic success message to prevent account enumeration.
+
+    Args:
+        body: The user's email address.
+        db: Database session.
+
+    Returns:
+        MessageResponse: Generic success message.
     """
-    _neutral_response = MessageResponse(
-        message="Falls ein Account existiert, wurde eine E-Mail gesendet."
+    generic_response = MessageResponse(
+        message="If an account exists for this email, a reset link has been sent."
     )
 
     user = db.query(User).filter(User.email == body.email).first()
     if not user:
-        # Kein Leak – trotzdem 200 zurückgeben
-        return _neutral_response
+        return generic_response
 
-    # Altes Token invalidieren (1 aktives Token pro User)
+    # Invalidate previous active tokens
     db.query(PasswordResetToken).filter(
         PasswordResetToken.user_id == user.id,
         PasswordResetToken.used == False,  # noqa: E712
@@ -302,14 +245,26 @@ def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)) 
     db.commit()
 
     _send_reset_email(user.email, raw_token)
-    return _neutral_response  # type: ignore[return-value]
+    return generic_response
 
 
 @router.post("/reset-password", response_model=StatusMessageResponse)
-def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)) -> StatusMessageResponse:
+def reset_password(
+    body: ResetPasswordRequest,
+    db: Session = Depends(get_db)
+) -> StatusMessageResponse:
     """
-    Setzt Passwort mit gültigem Reset-Token zurück.
-    Token wird danach invalidiert (einmalige Verwendung).
+    Reset user password using a valid reset token.
+
+    Args:
+        body: Token and new password.
+        db: Database session.
+
+    Returns:
+        StatusMessageResponse: Success status.
+
+    Raises:
+        HTTPException: If token is invalid, expired, or already used (400).
     """
     token_hash = hash_reset_token(body.token)
     now = datetime.now(timezone.utc)
@@ -325,57 +280,58 @@ def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)) ->
     )
 
     if not record:
+        logger.warning("Invalid or expired password reset attempt")
         raise HTTPException(
             status_code=400,
-            detail="Token ungültig oder abgelaufen. Bitte neuen Reset anfragen.",
+            detail="Invalid or expired token. Please request a new one.",
         )
 
     user = db.query(User).filter(User.id == record.user_id).first()
     if not user:
-        raise HTTPException(status_code=400, detail="Nutzer nicht gefunden.")
+        raise HTTPException(status_code=400, detail="User not found.")
 
     user.hashed_password = hash_password(body.password)
     record.used = True
     db.commit()
 
-    logger.info("Passwort zurückgesetzt für User: %s", user.id)
-    return StatusMessageResponse(status="success", message="Passwort erfolgreich geändert.")
+    logger.info("Password successfully reset", extra={"user_id": str(user.id)})
+    return StatusMessageResponse(status="success", message="Password changed successfully.")
 
 
-# ── E-Mail-Hilfsfunktion ─────────────────────────────────────────────────────
+# ── Internal Helpers ──────────────────────────────────────────────────────────
 
 def _send_reset_email(email: str, raw_token: str) -> None:
     """
-    Sendet Passwort-Reset-Mail via Resend SDK.
-    Fallback: Reset-URL wird im Log ausgegeben (für lokale Entwicklung).
-    """
-    from app.core.config import get_settings
+    Send the password reset email via Resend SDK.
 
+    Falls back to logging the reset URL in development mode.
+
+    Args:
+        email: Recipient address.
+        raw_token: The non-hashed reset token for the link.
+    """
     settings = get_settings()
-    reset_url = f"http://localhost:5173/reset-password?token={raw_token}"
+    reset_url = f"{settings.app_base_url}/reset-password?token={raw_token}"
 
     if not settings.resend_api_key:
-        # Lokale Entwicklung: URL ins Log schreiben statt Mail senden
         logger.warning(
-            "RESEND_API_KEY nicht gesetzt. Reset-URL (nur für DEV): %s", reset_url
+            "RESEND_API_KEY not set. Reset URL (DEV ONLY): %s", reset_url
         )
         return
 
     try:
         import resend
-
         resend.api_key = settings.resend_api_key
         resend.Emails.send({
             "from": settings.email_from,
             "to": email,
-            "subject": "Dein Resovva Passwort zurücksetzen",
+            "subject": "Reset your Resovva password",
             "html": (
-                f"<p>Du hast eine Passwort-Zurücksetzung angefragt.</p>"
-                f"<p><a href='{reset_url}'>Passwort zurücksetzen</a></p>"
-                f"<p>Dieser Link ist 15 Minuten gültig.</p>"
-                f"<p>Falls du diese Anfrage nicht gestellt hast, ignoriere diese Mail.</p>"
+                f"<p>You requested a password reset for your Resovva account.</p>"
+                f"<p><a href='{reset_url}'>Reset my password</a></p>"
+                f"<p>This link is valid for 15 minutes.</p>"
+                f"<p>If you didn't request this, you can safely ignore this email.</p>"
             ),
         })
     except Exception as exc:
-        # Mail-Fehler dürfen den API-Request nicht zum Absturz bringen
-        logger.error("Fehler beim Senden der Reset-Mail: %s", exc)
+        logger.error("Failed to send reset email: %s", str(exc), exc_info=True)

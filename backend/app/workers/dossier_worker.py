@@ -40,7 +40,7 @@ def run_dossier_generation(case_id: str) -> None:
     """
     from app.domain.models.db import Case, ChronologyEvent, User
     from app.infrastructure.database import get_db_context
-    from app.services.dossier_generator import DossierGenerator, render_dossier_ready_email
+    from app.services.dossier_generator import DossierGenerator
     from app.services.evidence_compiler import EvidenceCompiler
 
     logger.info("DossierWorker: Gestartet für Case %s.", case_id)

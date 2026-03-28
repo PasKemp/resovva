@@ -1,28 +1,23 @@
 """
-Checkout Router – Epic 5 (US-5.1 / US-5.2): Stripe Checkout & Webhook.
+Checkout Router.
 
-Endpunkte:
-  POST   /cases/{case_id}/checkout     – Erstellt eine Stripe Checkout Session
-  POST   /webhooks/stripe              – Verarbeitet Stripe-Events (checkout.session.completed)
-
-Status-Flow:
-  TIMELINE_READY → PAYMENT_PENDING (Checkout gestartet) → PAID (Webhook empfangen)
-
-Dev-Modus (kein STRIPE_SECRET_KEY):
-  - POST /checkout setzt den Fall direkt auf PAID und gibt checkout_url="" zurück
-  - Das Frontend leitet dann direkt zum Dossier weiter (kein Stripe-Redirect)
+Handles payment integration via Stripe, creating checkout sessions
+and processing webhooks to finalize case payment and start dossier generation.
 """
 
 from __future__ import annotations
 
 import logging
+from typing import Dict
 
 import stripe  # type: ignore[import-untyped]
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import (
+    APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
+)
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import CurrentUser, get_owned_case
+from app.api.v1.schemas.checkout import CheckoutResponse
 from app.core.config import get_settings
 from app.domain.models.db import Case
 from app.infrastructure.database import get_db
@@ -33,15 +28,7 @@ settings = get_settings()
 router = APIRouter(tags=["checkout"])
 
 
-# ── Response Schemas ──────────────────────────────────────────────────────────
-
-
-class CheckoutResponse(BaseModel):
-    checkout_url: str  # Leer im Dev-Modus → Frontend geht direkt zu Dossier
-
-
-# ── POST /cases/{case_id}/checkout ────────────────────────────────────────────
-
+# ── Checkout Endpoints ───────────────────────────────────────────────────────
 
 @router.post("/cases/{case_id}/checkout", response_model=CheckoutResponse)
 def create_checkout(
@@ -51,46 +38,52 @@ def create_checkout(
     db: Session = Depends(get_db),
 ) -> CheckoutResponse:
     """
-    Erstellt eine Stripe Checkout Session für den Fall (€20, einmalig).
+    Create a Stripe Checkout Session for a legal dossier fee (€20).
 
-    Dev-Modus (kein STRIPE_SECRET_KEY): Fall wird sofort auf PAID gesetzt,
-    checkout_url ist leer → Frontend navigiert direkt zum Dossier.
+    In development mode (STRIPE_SECRET_KEY not set), the payment is bypassed
+    and the case is immediately moved to 'GENERATING_DOSSIER' status.
 
     Args:
-        case_id: UUID des Falls.
+        case_id: UUID of the case to pay for.
+        current_user: Authenticated user (owner).
+        db: Database session.
 
     Returns:
-        CheckoutResponse: Stripe-Redirect-URL oder leer (Dev-Modus).
+        CheckoutResponse: Stripe session URL or indicating bypass.
 
     Raises:
-        HTTPException 404: Fall nicht gefunden oder nicht im Besitz des Nutzers.
-        HTTPException 402: Stripe nicht konfiguriert (nur wenn kein Dev-Modus).
-        HTTPException 500: Stripe API-Fehler.
+        HTTPException:
+            404: Case not found or not owned.
+            500: Missing configuration or Stripe API failure.
     """
     case = get_owned_case(case_id, current_user, db)
 
-    # Bereits in Generierung oder fertig – idempotent
-    if case.status in ("GENERATING_DOSSIER", "COMPLETED", "PAID"):
+    # Idempotency check: already paid or generating
+    if case.status in ("PAID", "GENERATING_DOSSIER", "COMPLETED"):
         return CheckoutResponse(checkout_url="")
 
-    # ── Dev-Modus: kein Stripe-Key → direkt GENERATING_DOSSIER setzen ──────────────
+    # ── Development Mode Bypass ───────────────────────────────────────────────
     if not settings.stripe_secret_key:
         logger.info(
-            "Dev-Modus: Fall %s direkt auf GENERATING_DOSSIER gesetzt (kein Stripe).", case_id
+            "Dev-Mode: bypassing payment",
+            extra={"case_id": case_id, "user_id": str(current_user.id)}
         )
         case.status = "GENERATING_DOSSIER"
         db.commit()
+
+        # Immediately start background worker (Epic 6)
         from app.workers.dossier_worker import run_dossier_generation
         background_tasks.add_task(run_dossier_generation, case_id)
+        
         return CheckoutResponse(checkout_url="")
 
-    # ── Produktionsmodus: Stripe Checkout Session erstellen ──────────────────
+    # ── Production Stripe Integration ─────────────────────────────────────────
     stripe.api_key = settings.stripe_secret_key
 
     if not settings.stripe_price_id:
         raise HTTPException(
             status_code=500,
-            detail="STRIPE_PRICE_ID ist nicht konfiguriert.",
+            detail="STRIPE_PRICE_ID missing in backend configuration."
         )
 
     success_url = f"{settings.app_base_url}/dashboard?payment=success&case_id={case_id}"
@@ -99,30 +92,42 @@ def create_checkout(
     try:
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
-            line_items=[{"price": settings.stripe_price_id, "quantity": 1}],
+            line_items=[{
+                "price": settings.stripe_price_id,
+                "quantity": 1
+            }],
             mode="payment",
             success_url=success_url,
             cancel_url=cancel_url,
             client_reference_id=str(current_user.id),
-            metadata={"case_id": case_id, "user_id": str(current_user.id)},
+            metadata={
+                "case_id": case_id,
+                "user_id": str(current_user.id)
+            },
             customer_email=current_user.email,
             allow_promotion_codes=True,
         )
     except stripe.StripeError as exc:
-        logger.error("Stripe-Fehler für Fall %s: %s", case_id, exc)
-        raise HTTPException(status_code=500, detail="Zahlung konnte nicht gestartet werden.")
+        logger.error(
+            "Stripe API error creating session",
+            extra={"case_id": case_id, "error": str(exc)},
+            exc_info=True
+        )
+        raise HTTPException(status_code=500, detail="Could not initiate payment session.")
 
-    # Session-ID speichern + Status auf PAYMENT_PENDING setzen (in einer Transaktion)
+    # Record specific Stripe metadata to DB
     case.stripe_session_id = session.id
     case.status = "PAYMENT_PENDING"
     db.commit()
 
-    logger.info("Stripe Checkout Session erstellt: %s (Fall: %s)", session.id, case_id)
+    logger.info(
+        "Stripe checkout session initialized",
+        extra={"case_id": case_id, "session_id": str(session.id)}
+    )
     return CheckoutResponse(checkout_url=session.url)
 
 
-# ── POST /webhooks/stripe ─────────────────────────────────────────────────────
-
+# ── Webhook Integration ───────────────────────────────────────────────────────
 
 @router.post("/webhooks/stripe", status_code=200)
 async def stripe_webhook(
@@ -130,77 +135,72 @@ async def stripe_webhook(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     stripe_signature: str = Header(None, alias="stripe-signature"),
-) -> dict[str, str]:
+) -> Dict[str, str]:
     """
-    Verarbeitet Stripe Webhook-Events.
+    Handle Stripe webhook notifications for session completion.
 
-    Unterstützte Events:
-    - checkout.session.completed → Fall wird auf PAID gesetzt
-
-    Sicherheit: Signatur-Verifikation via STRIPE_WEBHOOK_SECRET (Pflicht in Prod).
+    Validates the event signature if STRIPE_WEBHOOK_SECRET is set.
+    Updates case status and triggers dossier generation on success.
 
     Returns:
-        {"status": "ok"} bei Erfolg.
-
-    Raises:
-        HTTPException 400: Ungültige Signatur oder unbekanntes Event.
+        Dict[str, str]: Status object.
     """
     if not settings.stripe_secret_key:
-        # Dev-Modus: kein Webhook nötig
         return {"status": "ok"}
 
     stripe.api_key = settings.stripe_secret_key
     payload = await request.body()
 
+    # 1. Signature Verification
     if settings.stripe_webhook_secret:
         try:
             event = stripe.Webhook.construct_event(
                 payload, stripe_signature, settings.stripe_webhook_secret
             )
         except stripe.SignatureVerificationError:
-            logger.warning("Stripe Webhook: ungültige Signatur.")
-            raise HTTPException(status_code=400, detail="Ungültige Webhook-Signatur.")
+            logger.warning("Stripe Webhook: signature verification failed")
+            raise HTTPException(status_code=400, detail="Invalid signature.")
     else:
-        # Kein Webhook-Secret → Signatur überspringen (nur für lokales Testing)
+        # Non-secure fallback (tests/dev only)
         import json
         event = stripe.Event.construct_from(json.loads(payload), stripe.api_key)
 
+    # 2. Event Processing
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         case_id = session.get("metadata", {}).get("case_id")
 
         if not case_id:
-            logger.warning("Stripe Webhook: case_id fehlt in Metadata.")
+            logger.warning("Stripe Webhook: 'case_id' missing in session metadata")
             return {"status": "ok"}
 
         case = db.query(Case).filter(Case.id == case_id).first()
         if case:
-            # Idempotenz: bereits PAID oder weiter → nichts tun
+            # Idempotency check: only process if status is not already advanced
             if case.status in ("PAID", "GENERATING_DOSSIER", "COMPLETED"):
-                logger.info("Webhook: Fall %s bereits %s – übersprungen.", case_id, case.status)
+                logger.debug("Stripe Webhook: case already paid/completed", extra={"case_id": case_id})
                 return {"status": "ok"}
 
             case.status = "GENERATING_DOSSIER"
             case.stripe_session_id = session.get("id")
 
-            # Bonus: payment_intent für Buchhaltungs-Referenz persistieren
+            # Persist Reference
             payment_intent = session.get("payment_intent")
             if payment_intent:
-                extracted = dict(case.extracted_data or {})
-                extracted["stripe_payment_intent"] = payment_intent
-                case.extracted_data = extracted
+                data = dict(case.extracted_data or {})
+                data["stripe_payment_intent"] = payment_intent
+                case.extracted_data = data
 
             db.commit()
             logger.info(
-                "Zahlung bestätigt: Fall %s → GENERATING_DOSSIER (intent: %s).",
-                case_id, payment_intent,
+                "Payment confirmed via webhook",
+                extra={"case_id": case_id, "payment_intent": str(payment_intent)}
             )
 
-            # Dossier-Generierung im Hintergrund starten (US-6.4)
+            # 3. Trigger Async Document Generation
             from app.workers.dossier_worker import run_dossier_generation
             background_tasks.add_task(run_dossier_generation, case_id)
-            logger.info("Webhook: DossierWorker für Case %s in BackgroundTask gestartet.", case_id)
         else:
-            logger.warning("Stripe Webhook: Fall %s nicht gefunden.", case_id)
+            logger.warning("Stripe Webhook: session case_id target not found in DB", extra={"case_id": case_id})
 
     return {"status": "ok"}

@@ -1,16 +1,13 @@
 """
-Unified Extraction Pipeline – US-8.4.
+Unified extraction pipeline for document processing.
 
-Orchestriert die zweistufige Textextraktions-Pipeline und ersetzt
-den Azure-basierten OCR-Worker aus US-2.4:
+Orchestrates the two-stage text extraction process:
+1. Stage 1 (Local): pypdf via LocalExtractor (fast, free).
+2. Stage 2 (Cloud): LlamaParse via LlamaParseExtractor (fallback for images or
+   complex layouts).
 
-  Stufe 1 (lokal):  pypdf via LocalExtractor (kostenlos, ms-schnell)
-  Stufe 2 (Cloud):  LlamaParse via LlamaParseExtractor (nur bei Bedarf)
-
-Status-Flow im DB-Feld `documents.ocr_status`:
-  pending → parsing → [llama_parse_fallback →] masking → completed | error
-
-Output: einheitlicher Markdown-String → direkt an PII-Masking-Engine übergeben.
+Status flow in `documents.ocr_status`:
+pending -> parsing -> [llama_parse_fallback ->] masking -> completed | error
 """
 
 from __future__ import annotations
@@ -19,7 +16,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional
+from typing import Optional, Any
 
 from sqlalchemy.orm import Session
 
@@ -43,40 +40,39 @@ logger = logging.getLogger(__name__)
 @dataclass
 class MaskedDocument:
     """
-    Ergebnis der vollständigen Extraktions-Pipeline.
+    Result of the full extraction pipeline.
 
     Attributes:
-        document_id: UUID des verarbeiteten Dokuments.
-        masked_text: PII-maskierter Text bereit für LLM-Verarbeitung.
-        method: Verwendete Extraktionsmethode ("pypdf" oder "llamaparse").
-        page_count: Anzahl der verarbeiteten Seiten.
+        document_id: UUID of the processed document.
+        masked_text: PII-masked text ready for LLM processing.
+        method: Extraction method used ("pypdf", "text", or "llamaparse").
+        page_count: Number of processed pages.
     """
-
     document_id: str
     masked_text: str
     method: str
     page_count: int
 
 
-# ── Öffentliche API ────────────────────────────────────────────────────────────
-
+# ── Public API ────────────────────────────────────────────────────────────────
 
 def process_document(document_id: str) -> None:
     """
-    Orchestriert die vollständige Extraktions-Pipeline für ein Dokument.
+    Orchestrate the full extraction pipeline for a document.
 
-    Wird als FastAPI BackgroundTask nach dem Upload gestartet.
-    Öffnet eine eigene DB-Session (nicht die Request-Session).
-
-    Status-Flow: pending → parsing → [llama_parse_fallback →] masking → completed | error
+    Designed to be run as a FastAPI BackgroundTask. Opens its own database
+    context to avoid session conflicts with the request-response cycle.
 
     Args:
-        document_id: UUID des zu verarbeitenden Dokuments.
+        document_id: UUID of the document to process.
     """
     with get_db_context() as db:
         doc = db.query(Document).filter(Document.id == document_id).first()
         if not doc:
-            logger.error("Pipeline: Dokument %s nicht gefunden.", document_id)
+            logger.error(
+                "Pipeline: document not found",
+                extra={"document_id": document_id}
+            )
             return
 
         try:
@@ -84,23 +80,22 @@ def process_document(document_id: str) -> None:
         except Exception as exc:
             doc.ocr_status = "error"
             db.commit()
-            logger.error("Pipeline-Fehler für Dokument %s: %s", document_id, exc)
+            logger.error(
+                "Pipeline execution failed",
+                extra={"document_id": document_id, "error": str(exc)},
+                exc_info=True
+            )
 
 
-# ── Private Pipeline-Logik ─────────────────────────────────────────────────────
-
+# ── Internal Pipeline Logic ──────────────────────────────────────────────────
 
 def _run_pipeline(doc: Document, db: Session) -> None:
     """
-    Führt die eigentliche Pipeline-Logik für ein Dokument aus.
-
-    Stufe 1: Lokale Extraktion via pypdf (wenn PDF).
-    Stufe 2: LlamaParse-Fallback (wenn Bild oder pypdf unzureichend).
-    Abschluss: PII-Maskierung und DB-Speicherung.
+    Execute the core pipeline steps for a single document.
 
     Args:
-        doc: Das zu verarbeitende Dokument (mit aktiver DB-Session).
-        db: Aktive SQLAlchemy-Session.
+        doc: The Document model instance (attached to active DB session).
+        db: Active SQLAlchemy session.
     """
     settings = get_settings()
     router = ParsingRouter(min_chars_per_page=settings.min_chars_per_page)
@@ -110,38 +105,52 @@ def _run_pipeline(doc: Document, db: Session) -> None:
     db.commit()
 
     raw_bytes = get_storage().download_file(doc.s3_key)
-    ext = doc.s3_key.rsplit(".", 1)[-1].lower() if "." in doc.s3_key else ""
+    # Extract extension from filename or S3 key
+    ext = doc.filename.rsplit(".", 1)[-1].lower() if "." in doc.filename else ""
+    if not ext:
+        ext = doc.s3_key.rsplit(".", 1)[-1].lower() if "." in doc.s3_key else ""
 
-    # Stufe 1: Lokale pypdf-Extraktion (nur für PDFs sinnvoll)
-    local_result: Optional[LocalExtractionResult] = None
-    
+    method = "unknown"
+    raw_text = ""
+
+    # Phase 1: Direct Text or Local PDF extraction
     if ext == "txt":
         raw_text = raw_bytes.decode("utf-8", errors="replace")
         method = "text"
-        logger.info("Reiner Text für %s erkannt (OCR übersprungen)", doc.id)
+        logger.info("Direct text files detected (skipping OCR)", extra={"document_id": str(doc.id)})
     else:
+        local_result: Optional[LocalExtractionResult] = None
         if ext == "pdf":
             try:
                 local_result = extract_text_local(raw_bytes)
             except ValueError as exc:
-                logger.warning("Lokale Extraktion fehlgeschlagen (%s): %s", doc.id, exc)
+                logger.warning(
+                    "Local extraction failed",
+                    extra={"document_id": str(doc.id), "error": str(exc)}
+                )
 
-        # Routing-Entscheidung
+        # Phase 2: Routing decision (check if LlamaParse fallback is needed)
         fallback_needed, reason = router.route(ext, local_result)
 
         if not fallback_needed and local_result:
             raw_text = local_result.text
             method = "pypdf"
-            logger.info("pypdf ausreichend für %s: %s", doc.id, reason)
+            logger.info(
+                "Local pypdf extraction successful",
+                extra={"document_id": str(doc.id), "reason": reason}
+            )
         else:
-            logger.info("LlamaParse-Fallback für %s: %s", doc.id, reason)
+            logger.info(
+                "Triggering LlamaParse fallback",
+                extra={"document_id": str(doc.id), "reason": reason}
+            )
             doc.ocr_status = "llama_parse_fallback"
             db.commit()
 
             raw_text = _run_llamaparse(doc, db, raw_bytes, settings)
             method = "llamaparse"
 
-    # Maskierung
+    # Phase 3: PII Masking
     doc.ocr_status = "masking"
     db.commit()
 
@@ -151,13 +160,15 @@ def _run_pipeline(doc: Document, db: Session) -> None:
     db.commit()
 
     logger.info(
-        "Pipeline abgeschlossen: %s via %s (%d Zeichen).",
-        doc.id,
-        method,
-        len(masked),
+        "Extraction pipeline completed",
+        extra={
+            "document_id": str(doc.id),
+            "method": method,
+            "char_count": len(masked)
+        }
     )
 
-    # US-3.1: RAG-Einbettung (non-blocking – schlägt still fehl wenn Qdrant unavailable)
+    # Phase 4: RAG Embedding (US-3.1)
     _embed_document(doc, masked)
 
 
@@ -165,29 +176,29 @@ def _run_llamaparse(
     doc: Document,
     db: Session,
     file_bytes: bytes,
-    settings,
+    settings: Any,
 ) -> str:
     """
-    Führt den LlamaParse-Cloud-Fallback durch.
-
-    Logt den Verbrauch in der llama_parse_usage-Tabelle für Free-Tier-Monitoring.
-    Setzt ocr_status auf "error" bei Quota-Überschreitung (kein stilles Scheitern).
+    Perform cloud-based extraction via LlamaParse.
 
     Args:
-        doc: Das zu verarbeitende Dokument.
-        db: Aktive SQLAlchemy-Session.
-        file_bytes: Rohe Datei-Bytes aus S3.
-        settings: Anwendungskonfiguration.
+        doc: The document to process.
+        db: Active SQLAlchemy session.
+        file_bytes: Raw file content.
+        settings: Application settings.
 
     Returns:
-        Extrahierter Markdown-Text (leer wenn API-Key fehlt).
+        str: Extracted markdown text.
 
     Raises:
-        LlamaParseQuotaError: Bei Quota-Überschreitung (nach DB-Update).
-        LlamaParseGenericError: Bei sonstigen nicht-behebbaren LlamaParse-Fehlern.
+        LlamaParseQuotaError: If daily limits reached.
+        LlamaParseGenericError: If API communication fails.
     """
     if not settings.llama_cloud_api_key:
-        logger.warning("LLAMA_CLOUD_API_KEY nicht konfiguriert – LlamaParse übersprungen.")
+        logger.warning(
+            "LlamaParse API key not configured. Fallback skipped.",
+            extra={"document_id": str(doc.id)}
+        )
         return ""
 
     filename = doc.s3_key.rsplit("/", 1)[-1]
@@ -200,33 +211,33 @@ def _run_llamaparse(
                 api_key=settings.llama_cloud_api_key,
             )
         )
-        _log_llamaparse_usage(db, page_count=1)
+        _log_llamaparse_usage(db, page_count=1)  # Rough estimate
         return text
 
     except LlamaParseTimeoutError as exc:
-        logger.error("LlamaParse Timeout für %s: %s", doc.id, exc)
+        logger.error("LlamaParse timeout", extra={"document_id": str(doc.id)})
         raise LlamaParseGenericError(str(exc)) from exc
 
-    except LlamaParseQuotaError as exc:
-        logger.error("LlamaParse Quota-Fehler für %s: %s", doc.id, exc)
+    except LlamaParseQuotaError:
+        logger.error("LlamaParse quota reached", extra={"document_id": str(doc.id)})
         doc.ocr_status = "error"
         db.commit()
-        # TODO: Support-Alert auslösen (Slack/E-Mail via US-8.3 Anforderung)
         raise
 
     except LlamaParseGenericError:
         raise
 
     except Exception as exc:
-        raise LlamaParseGenericError(f"Unerwarteter LlamaParse-Fehler: {exc}") from exc
+        raise LlamaParseGenericError(f"Unexpected LlamaParse error: {exc}") from exc
 
 
 def _embed_document(doc: Document, masked_text: str) -> None:
     """
-    Bettet den maskierten Text in Qdrant ein (US-3.1).
+    Embed masked text into Qdrant for RAG (US-3.1).
 
-    Wird nach erfolgreichem Masking aufgerufen. Schlägt still fehl
-    wenn Qdrant oder OpenAI-Embeddings nicht konfiguriert sind.
+    Args:
+        doc: The document to embed.
+        masked_text: PII-masked content.
     """
     try:
         from app.core.rag import chunk_and_embed
@@ -237,20 +248,24 @@ def _embed_document(doc: Document, masked_text: str) -> None:
             text=masked_text,
         )
         if count:
-            logger.info("RAG: %d Chunks für Dokument %s eingebettet.", count, doc.id)
+            logger.info(
+                "RAG chunks embedded",
+                extra={"document_id": str(doc.id), "count": count}
+            )
     except Exception as exc:
-        logger.warning("RAG-Einbettung fehlgeschlagen (Doc %s): %s – wird übersprungen.", doc.id, exc)
+        logger.warning(
+            "RAG embedding failed",
+            extra={"document_id": str(doc.id), "error": str(exc)}
+        )
 
 
 def _log_llamaparse_usage(db: Session, page_count: int) -> None:
     """
-    Logt LlamaParse-Verbrauch für Free-Tier-Monitoring (US-8.3).
-
-    Addiert page_count zum heutigen Eintrag oder legt einen neuen Eintrag an.
+    Log LlamaParse usage for quota monitoring (US-8.3).
 
     Args:
-        db: Aktive SQLAlchemy-Session.
-        page_count: Anzahl der verarbeiteten Seiten.
+        db: Active SQLAlchemy session.
+        page_count: Estimated number of pages processed.
     """
     today = date.today()
     usage = db.query(LlamaParseUsage).filter(LlamaParseUsage.date == today).first()

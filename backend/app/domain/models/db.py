@@ -1,14 +1,9 @@
 """
-SQLAlchemy ORM-Modelle – Resovva Datenbankschema.
+SQLAlchemy ORM models for Resovva.
 
-Tabellen:
-  users                – Nutzerverwaltung (Epic 1: Auth & Mandantenfähigkeit)
-  cases                – Fälle (Epic 1 & 5: Schaltzentrale)
-  documents            – Dokumente (Epic 2: Ingestion & S3)
-  chronology_events    – Zeitleiste (Epic 4: Der Rote Faden)
-  mobile_upload_tokens – QR-Code-Upload-Token (Epic 2 US-2.3)
-  password_reset_tokens – Passwort-Reset-Token (Epic 1)
-  llama_parse_usage    – Free-Tier-Monitoring für LlamaParse (Epic 8 US-8.3)
+This module defines the complete database schema, including users, cases,
+documents, and related metadata entities. Models use SQLAlchemy 2.0 style
+Mapped typing for improved static analysis.
 """
 
 from __future__ import annotations
@@ -17,35 +12,35 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean, Date, DateTime, ForeignKey, Integer, String, Text
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
+    """Base class for all SQLAlchemy models."""
     pass
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 1. USERS
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ── Users ─────────────────────────────────────────────────────────────────────
 
 class User(Base):
     """
-    Nutzer-Modell für Auth & Mandantenfähigkeit (Epic 1).
+    User model for authentication and multi-tenancy.
 
     Attributes:
-        id: Primärschlüssel (UUID).
-        email: Eindeutige E-Mail-Adresse.
-        hashed_password: bcrypt-Hash des Passworts.
-        accepted_terms: Zustimmung zu AGB.
-        created_at: Erstellungszeitpunkt.
-        first_name: Vorname (nullable – Rückwärtskompatibilität).
-        last_name: Nachname (nullable).
-        street: Straße und Hausnummer (nullable).
-        postal_code: PLZ, 5 Ziffern (nullable).
-        city: Stadt (nullable).
+        id: Primary key (UUID).
+        email: Unique user email address.
+        hashed_password: Bcrypt hash of the user password.
+        accepted_terms: Whether the user accepted terms of service.
+        created_at: Account creation timestamp (UTC).
+        first_name: User's first name.
+        last_name: User's last name.
+        street: Physical address (street and house number).
+        postal_code: Physical address (postal code).
+        city: Physical address (city).
     """
 
     __tablename__ = "users"
@@ -58,9 +53,11 @@ class User(Base):
     )
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     accepted_terms: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
-    # Profil-Daten (US-7.3) – nullable für Rückwärtskompatibilität
+    # Profile data
     first_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     last_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     street: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -72,10 +69,16 @@ class User(Base):
     )
 
     def __repr__(self) -> str:
+        """String representation of the User."""
         return f"<User(id={self.id!s:.8}, email={self.email!r})>"
 
     def to_dict(self) -> Dict[str, Any]:
-        """Serialisiert den Nutzer für API-Responses (ohne Passwort-Hash)."""
+        """
+        Serialize the User object for API responses.
+
+        Returns:
+            Dict[str, Any]: Basic user profile and status.
+        """
         return {
             "user_id": str(self.id),
             "email": self.email,
@@ -93,25 +96,24 @@ class User(Base):
         }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. CASES
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ── Cases ─────────────────────────────────────────────────────────────────────
 
 class Case(Base):
     """
-    Fall-Modell als zentrale Schaltzentrale (Epic 1 & 5).
+    Central Case model representing a legal claim.
 
-    Status-Flow: DRAFT → WAITING_FOR_USER → PAID → COMPLETED
+    Status flow: DRAFT → WAITING_FOR_USER → PAID → COMPLETED
 
     Attributes:
-        id: Primärschlüssel (UUID).
-        user_id: Fremdschlüssel auf User (Mandantenfähigkeit).
-        status: Aktueller Fall-Status.
-        stripe_session_id: Stripe-Checkout-Session (Epic 5).
-        extracted_data: KI-extrahierte Fakten als JSONB.
-        created_at: Erstellungszeitpunkt.
-        updated_at: Letzter Änderungszeitpunkt.
+        id: Primary key (UUID).
+        user_id: ForeignKey reference to User.
+        status: Current workflow status.
+        stripe_session_id: ID of the associated Stripe Checkout session.
+        extracted_data: JSON blob of facts extracted by AI.
+        opponent_category: Classification of the opposing party.
+        opponent_name: Name of the opposing party.
+        created_at: Timestamp of creation (UTC).
+        updated_at: Timestamp of last modification (UTC).
     """
 
     __tablename__ = "cases"
@@ -127,12 +129,18 @@ class Case(Base):
         String(255), unique=True, nullable=True
     )
     extracted_data: Mapped[dict] = mapped_column(JSONB, default=dict)
-    # US-9.1: Generisches Streitparteien-Modell (ersetzt network_operator in extracted_data)
+
+    # Opponent details
     opponent_category: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     opponent_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc)
     )
 
     user: Mapped["User"] = relationship("User", back_populates="cases")
@@ -144,10 +152,16 @@ class Case(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Case(id={self.id!s:.8}, status={self.status!r}, user_id={self.user_id!s:.8})>"
+        """String representation of the Case."""
+        return f"<Case(id={self.id!s:.8}, status={self.status!r})>"
 
     def to_dict(self) -> Dict[str, Any]:
-        """Serialisiert den Fall für API-Responses."""
+        """
+        Serialize the Case object for API responses.
+
+        Returns:
+            Dict[str, Any]: Case overview data.
+        """
         return {
             "case_id": str(self.id),
             "user_id": str(self.user_id),
@@ -162,25 +176,22 @@ class Case(Base):
         }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 3. DOCUMENTS
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ── Documents ──────────────────────────────────────────────────────────────────
 
 class Document(Base):
     """
-    Dokument-Modell für Ingestion & S3-Storage (Epic 2).
+    Document model for ingestion and S3 storage.
 
     Attributes:
-        id: Primärschlüssel (UUID).
-        case_id: Fremdschlüssel auf Case.
-        filename: Originaler Dateiname.
-        s3_key: Pfad im MinIO/S3-Bucket ({case_id}/{uuid}.{ext}).
-        document_type: Klassifizierung (INVOICE, CONTRACT, etc.).
-        ocr_status: Verarbeitungsstatus (pending|parsing|llama_parse_fallback|masking|completed|error).
-        masked_text: PII-maskierter Klartext nach Extraktion (US-2.5, Epic 8).
-        ai_summary: KI-generierte Zusammenfassung (gpt-4o-mini, on-demand, gecacht).
-        created_at: Upload-Zeitpunkt.
+        id: Primary key (UUID).
+        case_id: ForeignKey reference to Case.
+        filename: Original user filename.
+        s3_key: Unique S3 storage path.
+        document_type: Classification (INVOICE, CONTRACT, etc.).
+        ocr_status: Status of the OCR pipeline.
+        masked_text: PII-masked OCR output.
+        ai_summary: On-demand AI-generated summary.
+        created_at: Upload timestamp (UTC).
     """
 
     __tablename__ = "documents"
@@ -197,18 +208,23 @@ class Document(Base):
     ocr_status: Mapped[str] = mapped_column(String(30), default="pending")
     masked_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     ai_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
     case: Mapped["Case"] = relationship("Case", back_populates="documents")
 
     def __repr__(self) -> str:
-        return (
-            f"<Document(id={self.id!s:.8}, filename={self.filename!r}, "
-            f"ocr_status={self.ocr_status!r})>"
-        )
+        """String representation of the Document."""
+        return f"<Document(id={self.id!s:.8}, filename={self.filename!r})>"
 
     def to_dict(self) -> Dict[str, Any]:
-        """Serialisiert das Dokument für API-Responses."""
+        """
+        Serialize the Document object for API responses.
+
+        Returns:
+            Dict[str, Any]: Document metadata.
+        """
         return {
             "document_id": str(self.id),
             "case_id": str(self.case_id),
@@ -217,26 +233,25 @@ class Document(Base):
             "document_type": self.document_type,
             "ocr_status": self.ocr_status,
             "created_at": self.created_at.isoformat(),
+            "ai_summary": self.ai_summary,
+            "masked_text_preview": (self.masked_text[:500] if self.masked_text else None),
         }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 4. CHRONOLOGY_EVENTS
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ── Chronology ────────────────────────────────────────────────────────────────
 
 class ChronologyEvent(Base):
     """
-    Zeitleisten-Ereignis (Epic 4: Der Rote Faden).
+    An individual event in the chronology of a case.
 
     Attributes:
-        id: Primärschlüssel (UUID).
-        case_id: Fremdschlüssel auf Case.
-        event_date: Datum des Ereignisses.
-        description: Beschreibung des Ereignisses.
-        source_doc_id: Optionaler Verweis auf Quelldokument.
-        source_type: 'ai' oder 'user' (verhindert Überschreiben von User-Daten).
-        is_gap: Kennzeichnung fehlender Belege (Soft-Blocker).
+        id: Primary key (UUID).
+        case_id: ForeignKey reference to Case.
+        event_date: Date when the event occurred.
+        description: Textual description of the event.
+        source_doc_id: Optional reference to the supporting Document.
+        source_type: 'ai' or 'user'.
+        is_gap: Marker for missing evidence.
     """
 
     __tablename__ = "chronology_events"
@@ -258,13 +273,16 @@ class ChronologyEvent(Base):
     case: Mapped["Case"] = relationship("Case", back_populates="timeline_events")
 
     def __repr__(self) -> str:
-        return (
-            f"<ChronologyEvent(id={self.id!s:.8}, date={self.event_date}, "
-            f"is_gap={self.is_gap})>"
-        )
+        """String representation of the Event."""
+        return f"<ChronologyEvent(id={self.id!s:.8}, date={self.event_date})>"
 
     def to_dict(self) -> Dict[str, Any]:
-        """Serialisiert das Ereignis für API-Responses."""
+        """
+        Serialize the Event for API responses.
+
+        Returns:
+            Dict[str, Any]: Event details and source link.
+        """
         return {
             "event_id": str(self.id),
             "case_id": str(self.case_id),
@@ -276,24 +294,19 @@ class ChronologyEvent(Base):
         }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 5. MOBILE_UPLOAD_TOKENS
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ── Tokens & Utility ──────────────────────────────────────────────────────────
 
 class MobileUploadToken(Base):
     """
-    QR-Code-Upload-Token (Epic 2 US-2.3).
-
-    Der Raw-Token wird niemals in der DB gespeichert – nur der SHA-256-Hash.
+    Short-lived token for QR-code based mobile uploads.
 
     Attributes:
-        id: Primärschlüssel (UUID).
-        case_id: Fremdschlüssel auf Case.
-        token_hash: SHA-256-Hash des Raw-Tokens.
-        expires_at: Ablaufzeitpunkt (15 Minuten nach Erstellung).
-        used: Einmaligkeitsschutz.
-        created_at: Erstellungszeitpunkt.
+        id: Primary key (UUID).
+        case_id: ForeignKey reference to Case.
+        token_hash: SHA-256 hash of the raw token.
+        expires_at: Expiry timestamp.
+        used: One-time use prevention.
+        created_at: Creation timestamp.
     """
 
     __tablename__ = "mobile_upload_tokens"
@@ -307,65 +320,26 @@ class MobileUploadToken(Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
     def __repr__(self) -> str:
-        return f"<MobileUploadToken(id={self.id!s:.8}, used={self.used}, expires_at={self.expires_at})>"
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 7. LLAMA_PARSE_USAGE
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-class LlamaParseUsage(Base):
-    """
-    Free-Tier-Monitoring für LlamaParse API (Epic 8 US-8.3).
-
-    Logt den täglichen Seitenverbrauch um das kostenlose Tageslimit
-    von 1.000 Seiten im Blick zu behalten.
-
-    Attributes:
-        id: Auto-Increment-Primärschlüssel.
-        date: Datum des Eintrags (eindeutig, ein Eintrag pro Tag).
-        pages_used: Anzahl der an LlamaParse gesendeten Seiten.
-    """
-
-    __tablename__ = "llama_parse_usage"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    date: Mapped[date] = mapped_column(Date, nullable=False, unique=True, index=True)
-    pages_used: Mapped[int] = mapped_column(Integer, default=0)
-
-    def __repr__(self) -> str:
-        return f"<LlamaParseUsage(date={self.date}, pages_used={self.pages_used})>"
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Serialisiert den Nutzungseintrag für API-Responses."""
-        return {
-            "date": self.date.isoformat(),
-            "pages_used": self.pages_used,
-        }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 8. PASSWORD_RESET_TOKENS
-# ─────────────────────────────────────────────────────────────────────────────
+        """String representation."""
+        return f"<MobileUploadToken(used={self.used}, expires={self.expires_at})>"
 
 
 class PasswordResetToken(Base):
     """
-    Passwort-Reset-Token (Epic 1).
-
-    Der Raw-Token wird niemals in der DB gespeichert – nur der SHA-256-Hash.
+    Token for password reset workflow.
 
     Attributes:
-        id: Primärschlüssel (UUID).
-        user_id: Fremdschlüssel auf User.
-        token_hash: SHA-256-Hash des Raw-Tokens.
-        expires_at: Ablaufzeitpunkt.
-        used: Einmaligkeitsschutz.
-        created_at: Erstellungszeitpunkt.
+        id: Primary key (UUID).
+        user_id: ForeignKey reference to User.
+        token_hash: SHA-256 hash of the raw token.
+        expires_at: Expiry timestamp.
+        used: One-time use prevention.
+        created_at: Creation timestamp.
     """
 
     __tablename__ = "password_reset_tokens"
@@ -379,7 +353,38 @@ class PasswordResetToken(Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
     def __repr__(self) -> str:
-        return f"<PasswordResetToken(id={self.id!s:.8}, used={self.used}, expires_at={self.expires_at})>"
+        """String representation."""
+        return f"<PasswordResetToken(user_id={self.user_id!s:.8}, used={self.used})>"
+
+
+class LlamaParseUsage(Base):
+    """
+    Monitoring for LlamaParse daily free-tier usage.
+
+    Attributes:
+        id: Auto-increment primary key.
+        date: Day of entry.
+        pages_used: Count of pages processed.
+    """
+
+    __tablename__ = "llama_parse_usage"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False, unique=True, index=True)
+    pages_used: Mapped[int] = mapped_column(Integer, default=0)
+
+    def __repr__(self) -> str:
+        """String representation."""
+        return f"<LlamaParseUsage(date={self.date}, pages={self.pages_used})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize for API."""
+        return {
+            "date": self.date.isoformat(),
+            "pages_used": self.pages_used,
+        }

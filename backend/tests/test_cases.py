@@ -1,13 +1,12 @@
 """
-Cases-Endpoint-Tests – Epic 1 (US-1.4, US-1.6, US-1.7).
+Case Management Integration Tests.
 
-Getestete Endpunkte:
-  GET    /api/v1/cases
-  POST   /api/v1/cases
-  DELETE /api/v1/cases/{case_id}
-
-Schwerpunkte: Mandantenfähigkeit (Tenant Isolation), DSGVO Hard-Delete.
+Covers US-1.4 (Tenant Isolation), US-1.6 (List & Create), and
+US-1.7 (GDPR Hard-Delete).
+Ensures data is strictly isolated between users.
 """
+
+from __future__ import annotations
 
 import uuid
 
@@ -15,9 +14,10 @@ from app.core.security import hash_password
 from app.domain.models.db import Case, User
 
 
-# ── Hilfsfunktion: zweiten Nutzer + Fall in DB anlegen ───────────────────────
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _create_other_user_with_case(db) -> tuple[User, Case]:
+    """Create a secondary user and an associated case for isolation testing."""
     other = User(
         email="other@example.com",
         hashed_password=hash_password("passwort123"),
@@ -34,11 +34,10 @@ def _create_other_user_with_case(db) -> tuple[User, Case]:
     return other, case
 
 
-# ── US-1.6: Liste & Anlegen ───────────────────────────────────────────────────
-
+# ── US-1.6: List & create ────────────────────────────────────────────────────
 
 def test_list_cases_empty(auth_client):
-    """Frisch angemeldeter Nutzer hat keine Fälle."""
+    """New users should have an empty case list (HTTP 200)."""
     client, _ = auth_client
     res = client.get("/api/v1/cases")
     assert res.status_code == 200
@@ -46,13 +45,13 @@ def test_list_cases_empty(auth_client):
 
 
 def test_list_cases_unauthenticated(client):
-    """Ohne Cookie → 401."""
+    """Accessing cases without a session should return 401."""
     res = client.get("/api/v1/cases")
     assert res.status_code == 401
 
 
 def test_create_case_success(auth_client):
-    """Neuen Fall anlegen → 201, Status DRAFT, case_id im Response."""
+    """Creating a case should return HTTP 201 with 'DRAFT' status."""
     client, _ = auth_client
     res = client.post("/api/v1/cases")
     assert res.status_code == 201
@@ -62,13 +61,13 @@ def test_create_case_success(auth_client):
 
 
 def test_create_case_unauthenticated(client):
-    """Ohne Cookie → 401."""
+    """Case creation must require authentication (HTTP 401)."""
     res = client.post("/api/v1/cases")
     assert res.status_code == 401
 
 
 def test_list_cases_shows_created_case(auth_client):
-    """Angelegter Fall erscheint in der Fallliste."""
+    """Created cases must appear in the user's case list."""
     client, _ = auth_client
     case_id = client.post("/api/v1/cases").json()["case_id"]
 
@@ -78,7 +77,7 @@ def test_list_cases_shows_created_case(auth_client):
 
 
 def test_list_cases_contains_metadata(auth_client):
-    """Fallübersicht enthält die erwarteten Felder."""
+    """Case summary must include essential tracking fields."""
     client, _ = auth_client
     client.post("/api/v1/cases")
 
@@ -91,7 +90,7 @@ def test_list_cases_contains_metadata(auth_client):
 
 
 def test_create_multiple_cases(auth_client):
-    """Nutzer kann mehrere Fälle parallel verwalten."""
+    """Users should be able to manage multiple independent cases."""
     client, _ = auth_client
     client.post("/api/v1/cases")
     client.post("/api/v1/cases")
@@ -102,7 +101,7 @@ def test_create_multiple_cases(auth_client):
 
 
 def test_cases_sorted_newest_first(auth_client):
-    """Fälle werden nach Erstelldatum absteigend sortiert (neueste zuerst)."""
+    """Case list should be sorted by creation date descending."""
     client, _ = auth_client
     first_id  = client.post("/api/v1/cases").json()["case_id"]
     second_id = client.post("/api/v1/cases").json()["case_id"]
@@ -114,9 +113,8 @@ def test_cases_sorted_newest_first(auth_client):
 
 # ── US-1.4: Tenant Isolation ─────────────────────────────────────────────────
 
-
 def test_tenant_isolation_list(auth_client, db):
-    """Nutzer sieht ausschließlich seine eigenen Fälle."""
+    """Users must never see cases belonging to other users."""
     client, _ = auth_client
     _, foreign_case = _create_other_user_with_case(db)
 
@@ -126,10 +124,7 @@ def test_tenant_isolation_list(auth_client, db):
 
 
 def test_tenant_isolation_delete_returns_404(auth_client, db):
-    """
-    Fremden Fall löschen → 404 (nicht 403).
-    Verhindert, dass Angreifer existierende Case-IDs ermitteln können.
-    """
+    """Deleting others' cases must return 404 to avoid existence leakage."""
     client, _ = auth_client
     _, foreign_case = _create_other_user_with_case(db)
 
@@ -137,11 +132,10 @@ def test_tenant_isolation_delete_returns_404(auth_client, db):
     assert res.status_code == 404
 
 
-# ── US-1.7: DSGVO Hard-Delete ────────────────────────────────────────────────
-
+# ── US-1.7: GDPR Hard-Delete ────────────────────────────────────────────────
 
 def test_delete_case_success(auth_client):
-    """Eigenen Fall löschen → 200, Fall danach nicht mehr in der Liste."""
+    """Deleting own case should permanently remove it (HTTP 200)."""
     client, _ = auth_client
     case_id = client.post("/api/v1/cases").json()["case_id"]
 
@@ -154,27 +148,27 @@ def test_delete_case_success(auth_client):
 
 
 def test_delete_case_unauthenticated(client):
-    """Ohne Cookie → 401."""
+    """Deleting a case requires session ownership (HTTP 401)."""
     res = client.delete(f"/api/v1/cases/{uuid.uuid4()}")
     assert res.status_code == 401
 
 
 def test_delete_invalid_uuid_returns_404(auth_client):
-    """Ungültige UUID als case_id → 404."""
+    """Invalid UUIDs in URL paths should be caught (HTTP 404)."""
     client, _ = auth_client
-    res = client.delete("/api/v1/cases/nicht-eine-uuid")
+    res = client.delete("/api/v1/cases/not-a-uuid")
     assert res.status_code == 404
 
 
 def test_delete_nonexistent_case_returns_404(auth_client):
-    """Gültige UUID, aber kein passender Fall → 404."""
+    """Deleting non-existent cases returns 404."""
     client, _ = auth_client
     res = client.delete(f"/api/v1/cases/{uuid.uuid4()}")
     assert res.status_code == 404
 
 
 def test_delete_only_removes_own_case(auth_client, db):
-    """Nach Hard-Delete sind andere eigene Fälle noch vorhanden."""
+    """Ensures delete operation is scoped to the target case only."""
     client, _ = auth_client
     id_a = client.post("/api/v1/cases").json()["case_id"]
     id_b = client.post("/api/v1/cases").json()["case_id"]

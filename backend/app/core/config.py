@@ -1,17 +1,33 @@
 """
-Pydantic Settings – Env Vars.
+Application configuration management using Pydantic Settings.
 
-Liest Konfiguration aus Umgebungsvariablen (z.B. .env).
+This module loads environment variables from a .env file and provides a
+type-safe way to access application settings.
 """
 
 from functools import lru_cache
 from typing import Optional
 
+from typing import Optional
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Application settings from environment."""
+    """
+    Global application settings.
+
+    Attributes:
+        app_name: Name of the application.
+        debug: Enable/disable debug mode.
+        database_url: Connection string for the PostgreSQL database.
+        secret_key: Secret key for JWT signing and sessions.
+        jwt_expire_days: Token validity duration in days.
+        allowed_origins: CORS origins allowed to access the API.
+        resend_api_key: API key for Resend email service.
+        email_from: Sender email address for system notifications.
+    """
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -19,79 +35,87 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # App
+    # ── App ───────────────────────────────────────────────────────────────────
     app_name: str = "Resovva.de"
     debug: bool = False
 
-    # Database (PostgreSQL – Hauptdatenbank)
+    # ── Database ──────────────────────────────────────────────────────────────
     database_url: Optional[str] = None
 
-    # JWT / Session
-    secret_key: str = "change-me-in-production-use-a-random-256bit-key"
-    jwt_expire_days: int = 7
-
-    # CORS – erlaubte Frontend-Origins (komma-getrennt)
+    # ── Auth & Security ───────────────────────────────────────────────────────
     allowed_origins: str = "http://localhost:5173"
 
-    # E-Mail (Resend – Passwort-Reset)
+    @field_validator("secret_key")
+    @classmethod
+    def secret_key_must_be_changed(cls, v: str, info) -> str:
+        """
+        Fail-fast check for production readiness.
+        
+        Ensures the default development secret is not used in production.
+        """
+        if not info.data.get("debug") and v == "change-me-in-production-use-a-random-256bit-key":
+            raise ValueError(
+                "SECRET_KEY must be a random, secure string in production. "
+                "Update your .env file or environment variables."
+            )
+        return v
+
+    # ── Email (Resend) ────────────────────────────────────────────────────────
     resend_api_key: Optional[str] = None
     email_from: str = "noreply@resovva.de"
 
-    # Azure OpenAI (DSGVO: Azure Germany) – für Production
+    # ── LLM (OpenAI / Azure) ──────────────────────────────────────────────────
     azure_openai_endpoint: Optional[str] = None
     azure_openai_api_key: Optional[str] = None
     azure_openai_deployment: str = "gpt-4o"
     openai_api_version: str = "2024-02-15-preview"
-
-    # Standard OpenAI (platform.openai.com) – für DEV ohne Azure-Genehmigung
     openai_api_key: Optional[str] = None
 
-    # Embeddings
+    # ── Embeddings ────────────────────────────────────────────────────────────
     embedding_model: str = "text-embedding-3-small"
     embedding_deployment: Optional[str] = None
 
-    # Qdrant
+    # ── Qdrant ────────────────────────────────────────────────────────────────
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: Optional[str] = None
     qdrant_collection: str = "resovva_docs"
 
-    # LangGraph Checkpointer (Postgres für Persistenz; leer = MemorySaver)
+    # ── LangGraph ─────────────────────────────────────────────────────────────
     postgres_checkpoint_url: Optional[str] = None
 
-    # MaStR-API (Marktstammdatenregister)
+    # ── External APIs ─────────────────────────────────────────────────────────
     mastr_api_base_url: str = "https://api.marktstammdatenregister.de"
 
-    # RAG/Ingest: Backend für PDF+Tabellen (text | unstructured | azure)
+    # ── Ingest & Document Processing ──────────────────────────────────────────
     ingest_backend: str = "text"
-    # Azure Document Intelligence (wenn ingest_backend=azure)
     azure_document_intelligence_endpoint: Optional[str] = None
     azure_document_intelligence_key: Optional[str] = None
+    llama_cloud_api_key: Optional[str] = None
+    min_chars_per_page: int = 50
 
-    # S3 / MinIO Storage (Epic 2)
+    # ── S3 / MinIO Storage ────────────────────────────────────────────────────
     s3_endpoint: str = "http://localhost:9000"
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"
     s3_bucket_name: str = "resovva-docs"
-    # Öffentliche URL für Presigned-URLs (browser-erreichbar).
-    # In Docker: S3_ENDPOINT=http://minio:9000 (intern), aber Presigned-URLs
-    # müssen http://localhost:9000 enthalten damit der Browser sie aufrufen kann.
-    # Leer lassen → fällt auf s3_endpoint zurück.
     s3_public_url: Optional[str] = None
 
-    # Stripe (Epic 5 – Checkout / Payments)
-    stripe_secret_key: Optional[str] = None       # sk_live_... or sk_test_...
-    stripe_webhook_secret: Optional[str] = None   # whsec_...
-    stripe_price_id: Optional[str] = None         # price_...  (€20 pro Fall)
-    app_base_url: str = "http://localhost:5173"   # Redirect-URLs nach Checkout
+    # ── Stripe (Payments) ─────────────────────────────────────────────────────
+    stripe_secret_key: Optional[str] = None
+    stripe_webhook_secret: Optional[str] = None
+    stripe_price_id: Optional[str] = None
+    app_base_url: str = "http://localhost:5173"
 
-    # Privacy
+    # ── Privacy & Retention ───────────────────────────────────────────────────
     data_retention_days: int = 30
-
-    # Text-Extraktion Pipeline (Epic 8)
-    llama_cloud_api_key: Optional[str] = None   # LlamaParse Cloud API Key
-    min_chars_per_page: int = 50                # Fallback-Schwelle für pypdf (MIN_CHARS_PER_PAGE)
 
 
 @lru_cache
 def get_settings() -> Settings:
+    """
+    Get application settings singleton.
+
+    Returns:
+        Settings: The cached settings instance.
+    """
     return Settings()

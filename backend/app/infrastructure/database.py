@@ -1,37 +1,44 @@
 """
-SQLAlchemy Session Factory.
+SQLAlchemy database infrastructure.
 
-Stellt eine synchrone DB-Session via FastAPI Depends() bereit.
-Erwartet DATABASE_URL in den Umgebungsvariablen (z.B. postgresql://user:pass@host/db).
+Provides the database engine, session factory, and dependency injection
+helpers for both FastAPI requests and background tasks.
 """
 
-# stdlib
 import logging
 from contextlib import contextmanager
-from typing import Generator
+from typing import Generator, Optional
 
-# third-party
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
-# local
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_engine = None
-_SessionLocal = None
+# Singletons for engine and session factory
+_engine: Optional[Engine] = None
+_SessionLocal: Optional[sessionmaker[Session]] = None
 
 
 def _get_engine() -> Engine:
-    """Lazy-Singleton für die DB-Engine (einmal pro Prozess erstellt)."""
+    """
+    Get the SQLAlchemy engine singleton.
+
+    Creates the engine if it doesn't exist. URL is retrieved from settings.
+
+    Returns:
+        Engine: The initialized SQLAlchemy engine.
+
+    Raises:
+        RuntimeError: If DATABASE_URL is not configured.
+    """
     global _engine, _SessionLocal
     if _engine is None:
         url = get_settings().database_url
         if not url:
             raise RuntimeError(
-                "DATABASE_URL ist nicht konfiguriert. "
-                "Setze die Umgebungsvariable DATABASE_URL."
+                "DATABASE_URL is not configured. Please set the environment variable."
             )
         _engine = create_engine(url, pool_pre_ping=True, pool_size=5, max_overflow=10)
         _SessionLocal = sessionmaker(bind=_engine, autocommit=False, autoflush=False)
@@ -40,15 +47,13 @@ def _get_engine() -> Engine:
 
 def get_db() -> Generator[Session, None, None]:
     """
-    FastAPI-Dependency: liefert eine SQLAlchemy-Session und schließt sie danach.
+    FastAPI dependency: provides a transactional database session.
 
-    Usage:
-        @router.get("/example")
-        def example(db: Session = Depends(get_db)):
-            ...
+    Yields:
+        Session: A SQLAlchemy database session.
     """
-    _get_engine()  # Stellt sicher, dass Engine initialisiert ist
-    db: Session = _SessionLocal()
+    _get_engine()  # Ensure engine is initialized
+    db: Session = _SessionLocal()  # type: ignore[misc]
     try:
         yield db
     finally:
@@ -58,15 +63,13 @@ def get_db() -> Generator[Session, None, None]:
 @contextmanager
 def get_db_context() -> Generator[Session, None, None]:
     """
-    Context-Manager für DB-Sessions außerhalb von FastAPI-Requests.
-    Genutzt von Background-Tasks (z.B. OCR-Worker).
+    Context manager for database sessions used outside of FastAPI requests.
 
-    Usage:
-        with get_db_context() as db:
-            ...
+    Yields:
+        Session: A SQLAlchemy database session.
     """
     _get_engine()
-    db: Session = _SessionLocal()
+    db: Session = _SessionLocal()  # type: ignore[misc]
     try:
         yield db
     finally:
@@ -75,13 +78,9 @@ def get_db_context() -> Generator[Session, None, None]:
 
 def create_all_tables() -> None:
     """
-    Erstellt alle Tabellen und führt Schema-Migrationen aus.
+    Initialize database schema and run idempotent column migrations.
 
-    create_all() erstellt nur fehlende Tabellen – vorhandene werden nicht
-    verändert. Für neue Spalten in bestehenden Tabellen nutzen wir
-    `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` (idempotent, PostgreSQL 9.6+).
-
-    In Production mit echten DB-Releases: Alembic-Migrationen einsetzen.
+    Should be called on application startup.
     """
     from app.domain.models.db import Base
     engine = _get_engine()
@@ -91,21 +90,27 @@ def create_all_tables() -> None:
 
 def _run_column_migrations(engine: Engine) -> None:
     """
-    Fügt fehlende Spalten zu bestehenden Tabellen hinzu (idempotent).
-    Wird bei jedem App-Start ausgeführt – keine Aktion wenn Spalte existiert.
+    Add missing columns to existing tables (idempotent).
+
+    Args:
+        engine: The SQLAlchemy engine to use for migrations.
     """
     migrations = [
-        # Epic 2 (US-2.4 & US-2.5): OCR-Status und maskierter Text in documents
+        # Epic 2: OCR Status
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS ocr_status  VARCHAR(20)  NOT NULL DEFAULT 'pending'",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS masked_text TEXT",
-        # Epic 9 (US-9.1): Generisches Streitparteien-Modell
+        # Epic 9: Opponent Model
         "ALTER TABLE cases ADD COLUMN IF NOT EXISTS opponent_category VARCHAR(50)",
         "ALTER TABLE cases ADD COLUMN IF NOT EXISTS opponent_name    VARCHAR(255)",
     ]
+
     with engine.begin() as conn:
         for sql in migrations:
             try:
                 conn.execute(text(sql))
-                logger.debug("Migration ausgeführt: %s", sql[:60])
+                logger.debug("Migration executed: %s", sql[:60])
             except Exception as exc:
-                logger.warning("Migration übersprungen (%s): %s", sql[:60], exc)
+                logger.warning(
+                    "Migration skipped or failed: %s", sql[:60],
+                    extra={"error": str(exc)}
+                )

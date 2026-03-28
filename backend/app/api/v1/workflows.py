@@ -1,8 +1,9 @@
 """
-Workflows Router – LangGraph-Run & Resume.
+Workflows Router.
 
-POST /workflows/run    – Startet den Agenten direkt (Legacy-Endpunkt)
-POST /workflows/resume – Setzt einen pausierten Graphen fort (US-3.5)
+Low-level orchestration for LangGraph agents.
+Provides generic 'run' and 'resume' capabilities to handle stateful transitions
+manually if needed (primary orchestration happens via Case Router).
 """
 
 from __future__ import annotations
@@ -10,33 +11,37 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+
+from app.api.v1.schemas.workflows import ResumeRequest, WorkflowRequest
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
 
-class WorkflowRequest(BaseModel):
-    case_id: str
-
-
-class ResumeRequest(BaseModel):
-    case_id: str
-    meter_number: str | None = None
-    malo_id: str | None = None
-    dispute_amount: float | None = None
-    network_operator: str | None = None
-
+# ── Workflow Control Endpoints ───────────────────────────────────────────────
 
 @router.post("/run")
-async def run_workflow(request: WorkflowRequest):
-    """Startet den Agenten direkt (verwendet von /cases/{id}/analyze bevorzugt)."""
+async def run_workflow(request: WorkflowRequest) -> dict:
+    """
+    Start the case agent graph directly from its initial state.
+
+    Args:
+        request: Identification of the case thread.
+
+    Returns:
+        dict: Final state summary.
+
+    Raises:
+        HTTPException: If the graph invocation fails (500).
+    """
     from app.agents.graph import get_agent_app
 
     case_id = request.case_id
     config = {"configurable": {"thread_id": case_id}}
-    initial_state: dict = {
+    
+    # Initialize state with default schema
+    initial_state = {
         "case_id": case_id,
         "messages": [],
         "documents": [],
@@ -51,39 +56,72 @@ async def run_workflow(request: WorkflowRequest):
         "dossier_ready": False,
         "payment_status": "pending",
     }
+
     try:
-        result = await (await get_agent_app()).ainvoke(initial_state, config=config)
+        agent_app = await get_agent_app()
+        result = await agent_app.ainvoke(initial_state, config=config)
+        
         return {
             "status": "success",
             "current_step": result.get("current_step"),
             "last_message": result.get("messages", [None])[-1],
         }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Workflow-Fehler: {exc}")
+        logger.error(
+            "Workflow invocation failed",
+            extra={"case_id": case_id, "error": str(exc)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Workflow error: {str(exc)}"
+        )
 
 
 @router.post("/resume")
-async def resume_workflow(request: ResumeRequest):
+async def resume_workflow(request: ResumeRequest) -> dict:
     """
-    Setzt einen pausierten LangGraph-Lauf fort (US-3.5 Human-in-the-Loop).
+    Resume a paused LangGraph thread (Human-in-the-Loop).
 
-    Aktualisiert den gespeicherten State mit den bestätigten Nutzerdaten
-    und ruft _node_confirm auf.
+    Updates the agent state with user-provided corrections and triggers
+    automatic continuation.
+
+    Args:
+        request: The case thread ID and entity updates.
+
+    Returns:
+        dict: Success indicator.
+
+    Raises:
+        HTTPException: If the resume operation fails (500).
     """
     from app.agents.graph import get_agent_app
 
-    config = {"configurable": {"thread_id": request.case_id}}
+    case_id = request.case_id
+    config = {"configurable": {"thread_id": case_id}}
+    
     confirmed_update = {
         "meter_number": request.meter_number,
         "malo_id": request.malo_id,
         "dispute_amount": request.dispute_amount,
         "network_operator": request.network_operator,
     }
+
     try:
         agent_app = await get_agent_app()
+        # 1. Update the interrupt-stopped state
         await agent_app.aupdate_state(config, confirmed_update)
+        # 2. Trigger non-input invoke to resume from current checkpoint
         await agent_app.ainvoke(None, config=config)
-        return {"status": "resumed", "case_id": request.case_id}
+        
+        return {"status": "resumed", "case_id": case_id}
     except Exception as exc:
-        logger.error("Resume fehlgeschlagen (Case %s): %s", request.case_id, exc)
-        raise HTTPException(status_code=500, detail=f"Resume fehlgeschlagen: {exc}")
+        logger.error(
+            "Agent resume failed",
+            extra={"case_id": case_id, "error": str(exc)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Resume failed: {str(exc)}"
+        )

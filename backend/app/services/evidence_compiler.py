@@ -1,22 +1,15 @@
 """
-EvidenceCompiler – US-6.3 (Epic 6).
+Evidence compiler service.
 
-Lädt Original-Dokumente aus S3, konvertiert Bilder (JPG/PNG) zu A4-PDF,
-stempelt jede Anlage mit rotem "Anlage N"-Label (oben rechts) und merged
-alle PDFs zu einem einzigen Master-PDF.
-
-Reihenfolge: [Haupt-PDF, Anlage 1, Anlage 2, …]
-Finales PDF wird unter ``{case_id}/dossier_master.pdf`` in S3 gespeichert.
-
-Stempeln per pypdf + reportlab (Canvas-Overlay).
-Falls reportlab nicht verfügbar, wird pypdf-only-Stempel als Fallback genutzt.
+Loads original documents from S3, converts images to PDF, stamps each annex
+with a red 'Anlage N' label, and merges all documents into a single master PDF.
 """
 
 from __future__ import annotations
 
 import io
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Set
 
 from pypdf import PdfReader, PdfWriter
 
@@ -27,31 +20,37 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# A4-Maße in Punkten (72 pt = 1 inch; A4 = 210×297 mm)
-A4_WIDTH_PT  = 595.28
-A4_HEIGHT_PT = 841.89
+# A4 dimensions in points (72 pt = 1 inch; A4 = 210 x 297 mm)
+A4_WIDTH_PT: float = 595.28
+A4_HEIGHT_PT: float = 841.89
 
 
 def _image_to_pdf_bytes(image_bytes: bytes) -> bytes:
     """
-    Konvertiert ein JPG- oder PNG-Bild in ein A4-PDF (Bytes).
+    Convert a JPG or PNG image into an A4 PDF.
 
-    Das Bild wird skaliert, um in A4 zu passen (mit Rand), und zentriert.
+    The image is scaled to fit within A4 margins and centered.
+
+    Args:
+        image_bytes: Raw image file content.
+
+    Returns:
+        bytes: Rendered PDF document bytes.
     """
     from PIL import Image  # type: ignore[import-untyped]
 
     img = Image.open(io.BytesIO(image_bytes))
-    # RGBA → RGB für PDF-Kompatibilität
+    # Convert RGBA/P to RGB for PDF compatibility
     if img.mode in ("RGBA", "P"):
         img = img.convert("RGB")
 
-    # Skalierung: maximale Nutzfläche mit 1 cm Rand
-    margin_pt = 28  # 1 cm
+    # Calculate scaling: 1cm margin (approx 28pt)
+    margin_pt = 28.0
     max_w = A4_WIDTH_PT - 2 * margin_pt
     max_h = A4_HEIGHT_PT - 2 * margin_pt
 
     img_w, img_h = img.size
-    # Skalierungsfaktor: 1pt = 1/72 inch; bei 72 DPI entspricht 1px = 1pt
+    # Scaling factor: 1pt = 1/72 inch
     scale = min(max_w / img_w, max_h / img_h, 1.0)
     new_w = int(img_w * scale)
     new_h = int(img_h * scale)
@@ -64,16 +63,17 @@ def _image_to_pdf_bytes(image_bytes: bytes) -> bytes:
 
 def _stamp_pdf_page(pdf_reader: PdfReader, annex_label: str) -> PdfWriter:
     """
-    Stempelt alle Seiten eines PDFs mit einem roten Annex-Label (oben rechts).
+    Stamp all pages of a PDF with a red annex label (top-right).
 
-    Nutzt reportlab für das Overlay. Falls nicht verfügbar → unstamped pass-through.
+    Uses reportlab for the overlay. Falls back to unstamped pages if
+    reportlab is not available.
 
     Args:
-        pdf_reader:   Eingelesenes pypdf.PdfReader-Objekt.
-        annex_label:  Beschriftung, z.B. "Anlage 1".
+        pdf_reader: The pypdf Reader object containing source pages.
+        annex_label: Label text, e.g., 'Anlage 1'.
 
     Returns:
-        pypdf.PdfWriter mit gestempelten Seiten.
+        PdfWriter: Writer containing the stamped pages.
     """
     writer = PdfWriter()
 
@@ -82,32 +82,32 @@ def _stamp_pdf_page(pdf_reader: PdfReader, annex_label: str) -> PdfWriter:
         from reportlab.pdfgen.canvas import Canvas  # type: ignore[import-untyped]
     except ImportError:
         logger.warning(
-            "reportlab nicht installiert – Anlagen werden ohne Stempel zusammengeführt."
+            "reportlab not installed. Annexes will be merged without stamps."
         )
         for page in pdf_reader.pages:
             writer.add_page(page)
         return writer
 
     for page in pdf_reader.pages:
-        # Seitengröße auslesen (Fallback A4)
+        # Get page dimensions (fallback to A4)
         media_box = page.mediabox
         page_w = float(media_box.width)
         page_h = float(media_box.height)
 
-        # Stempel-Canvas im Speicher erzeugen
+        # Create overlay canvas in memory
         stamp_buf = io.BytesIO()
         c = Canvas(stamp_buf, pagesize=(page_w, page_h))
         c.setFont("Helvetica-Bold", 10)
         c.setFillColor(red)
 
-        # Position: rechts oben (1 cm Rand)
-        margin = 28  # 1 cm in pt
+        # Position: Top-right (1cm margin)
+        margin = 28.0
         text_w = c.stringWidth(annex_label, "Helvetica-Bold", 10)
         x = page_w - text_w - margin
         y = page_h - margin - 12
         c.drawString(x, y, annex_label)
 
-        # Roter Rahmen als Stempel-Box
+        # Red border around the label
         box_padding = 4
         c.setStrokeColor(red)
         c.setLineWidth(0.8)
@@ -121,8 +121,9 @@ def _stamp_pdf_page(pdf_reader: PdfReader, annex_label: str) -> PdfWriter:
         c.save()
         stamp_buf.seek(0)
 
-        # Stamp-PDF über Original-Seite legen
-        stamp_page = PdfReader(stamp_buf).pages[0]
+        # Merge the stamp overlay with the original page
+        stamp_reader = PdfReader(stamp_buf)
+        stamp_page = stamp_reader.pages[0]
         page.merge_page(stamp_page)
         writer.add_page(page)
 
@@ -130,122 +131,113 @@ def _stamp_pdf_page(pdf_reader: PdfReader, annex_label: str) -> PdfWriter:
 
 
 def _bytes_to_pdf_reader(data: bytes) -> PdfReader:
-    """Erstellt einen PdfReader aus Bytes."""
+    """Initialize a PdfReader from bytes."""
     return PdfReader(io.BytesIO(data))
 
 
 class EvidenceCompiler:
     """
-    Kompiliert Haupt-PDF + Anlage-Dokumente zu einem Master-PDF.
-
-    Usage::
-
-        compiler = EvidenceCompiler()
-        s3_key = compiler.compile(case_id, main_pdf_bytes, documents)
+    Service for compiling the dossier master PDF from multiple documents.
     """
 
     def __init__(self) -> None:
+        """Initialize the compiler with access to S3 storage."""
         self._storage = get_storage()
 
     def compile(
         self,
         case_id: str,
         main_pdf_bytes: bytes,
-        documents: list["Document"],
+        documents: List["Document"],
     ) -> str:
         """
-        Merged Haupt-PDF + alle Anlagen zu ``{case_id}/dossier_master.pdf``.
+        Merge the main PDF and all annexes into a single master PDF.
 
-        Reihenfolge:
-        1. Haupt-PDF (Anschreiben + Chronologie)
-        2. Anlage 1 … N (nach created_at sortiert)
-
-        Bilder (jpg, jpeg, png, webp) werden vor dem Merge zu A4-PDFs konvertiert.
+        Sequence:
+        1. Main PDF (covering letter + chronology)
+        2. Annexes 1..N (sorted by creation date)
 
         Args:
-            case_id:        UUID-String des Falls.
-            main_pdf_bytes: Fertige Haupt-PDF-Bytes aus DossierGenerator.
-            documents:      SQLAlchemy Document-Objekte des Falls.
+            case_id: UUID string of the case.
+            main_pdf_bytes: Rendered main PDF bytes.
+            documents: List of SQLAlchemy Document models for the case.
 
         Returns:
-            S3-Key des fertigen Master-PDFs.
+            str: S3 key of the generated master dossier.
         """
         master_writer = PdfWriter()
 
-        # ── Haupt-PDF einhängen ──────────────────────────────────────────────
-        main_reader = _bytes_to_pdf_reader(main_pdf_bytes)
-        for page in main_reader.pages:
-            master_writer.add_page(page)
+        # ── Attach Main PDF ──────────────────────────────────────────────────
+        try:
+            main_reader = _bytes_to_pdf_reader(main_pdf_bytes)
+            for page in main_reader.pages:
+                master_writer.add_page(page)
+        except Exception as exc:
+            logger.error(
+                "Failed to process main PDF",
+                extra={"case_id": case_id, "error": str(exc)}
+            )
+            # We continue even if main PDF fails (unlikely) to attempt annex merge
 
-        # ── Anlage-Dokumente vorbereiten ─────────────────────────────────────
+        # ── Process Annexes ──────────────────────────────────────────────────
         sorted_docs = sorted(documents, key=lambda d: d.created_at)
-        image_exts = {".jpg", ".jpeg", ".png", ".webp"}
+        image_extensions: Set[str] = {".jpg", ".jpeg", ".png", ".webp"}
 
         for idx, doc in enumerate(sorted_docs, start=1):
             annex_label = f"Anlage {idx}"
-            logger.info("EvidenceCompiler: Verarbeite %s (%s).", annex_label, doc.filename)
+            logger.info(
+                "Compiling annex",
+                extra={"case_id": case_id, "label": annex_label, "filename": doc.filename}
+            )
 
             try:
+                # 1. Download from S3
                 file_bytes = self._storage.download_file(doc.s3_key)
-            except FileNotFoundError:
-                logger.warning(
-                    "EvidenceCompiler: Datei nicht in S3 gefunden: %s – übersprungen.",
-                    doc.s3_key,
-                )
-                continue
-            except Exception as exc:
-                logger.error("EvidenceCompiler: S3-Download-Fehler (%s): %r", doc.s3_key, exc)
-                continue
 
-            # Bild → A4-PDF konvertieren
-            ext = "." + doc.filename.rsplit(".", 1)[-1].lower() if "." in doc.filename else ""
-            if ext in image_exts:
-                try:
+                # 2. Image to PDF conversion if needed
+                ext = "." + doc.filename.rsplit(".", 1)[-1].lower() if "." in doc.filename else ""
+                if ext in image_extensions:
                     file_bytes = _image_to_pdf_bytes(file_bytes)
-                    logger.debug("EvidenceCompiler: Bild %s → PDF konvertiert.", doc.filename)
-                except Exception as exc:
-                    logger.error(
-                        "EvidenceCompiler: Bild-Konvertierung fehlgeschlagen (%s): %r",
-                        doc.filename, exc,
-                    )
-                    continue
 
-            # Stempel einhängen
-            try:
+                # 3. Apply Stamp
                 annex_reader = _bytes_to_pdf_reader(file_bytes)
                 stamped_writer = _stamp_pdf_page(annex_reader, annex_label)
+
+                # 4. Add to Master
+                for page in stamped_writer.pages:
+                    master_writer.add_page(page)
+
             except Exception as exc:
                 logger.error(
-                    "EvidenceCompiler: Stempeln fehlgeschlagen (%s): %r",
-                    doc.filename, exc,
+                    "Error processing annex",
+                    extra={
+                        "case_id": case_id,
+                        "document_id": str(doc.id),
+                        "filename": doc.filename,
+                        "error": str(exc)
+                    }
                 )
-                # Fallback: unstamped
-                try:
-                    annex_reader = _bytes_to_pdf_reader(file_bytes)
-                    stamped_writer = PdfWriter()
-                    for p in annex_reader.pages:
-                        stamped_writer.add_page(p)
-                except Exception:
-                    continue
+                continue
 
-            # Gestempelte Seiten in Master-Writer übertragen
-            for page in stamped_writer.pages:
-                master_writer.add_page(page)
-
-        # ── Master-PDF serialisieren ─────────────────────────────────────────
+        # ── Finalize and Upload ───────────────────────────────────────────────
         buf = io.BytesIO()
         master_writer.write(buf)
         master_pdf_bytes = buf.getvalue()
 
-        # ── In S3 hochladen ──────────────────────────────────────────────────
         s3_key = f"{case_id}/dossier_master.pdf"
         self._storage.upload_file(
             data=master_pdf_bytes,
             key=s3_key,
             content_type="application/pdf",
         )
+
         logger.info(
-            "EvidenceCompiler: Master-PDF hochgeladen – %s (%d Bytes, %d Anlagen).",
-            s3_key, len(master_pdf_bytes), len(sorted_docs),
+            "Master PDF compiled and uploaded",
+            extra={
+                "case_id": case_id,
+                "s3_key": s3_key,
+                "size": len(master_pdf_bytes),
+                "annex_count": len(sorted_docs)
+            }
         )
         return s3_key

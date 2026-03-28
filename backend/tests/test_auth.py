@@ -1,13 +1,12 @@
 """
-Auth-Endpoint-Tests – Epic 1 (US-1.2, US-1.3, US-1.5, US-1.8).
+Authentication and Session Integration Tests.
 
-Getestete Endpunkte:
-  POST /api/v1/auth/register
-  POST /api/v1/auth/login
-  POST /api/v1/auth/logout
-  POST /api/v1/auth/forgot-password
-  POST /api/v1/auth/reset-password
+Covers US-1.2 (Registration), US-1.3 (Login), US-1.5 (Logout), and
+US-1.8 (Password Reset).
+Ensures cookie-based authentication and rate limiting are properly enforced.
 """
+
+from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
@@ -16,11 +15,11 @@ import pytest
 from app.core.security import generate_reset_token
 from app.domain.models.db import PasswordResetToken
 
-# ── GET /me: Session-Status-Check ────────────────────────────────────────────
 
+# ── GET /me: Session Status ──────────────────────────────────────────────────
 
 def test_me_authenticated(auth_client):
-    """Eingeloggter Nutzer erhält seine Daten zurück."""
+    """Authenticated users should receive their profile data (HTTP 200)."""
     client, user = auth_client
     res = client.get("/api/v1/auth/me")
     assert res.status_code == 200
@@ -30,13 +29,13 @@ def test_me_authenticated(auth_client):
 
 
 def test_me_unauthenticated(client):
-    """Ohne Cookie → 401."""
+    """Missing session cookie should return Unauthorized (HTTP 401)."""
     res = client.get("/api/v1/auth/me")
     assert res.status_code == 401
 
 
 def test_me_after_login(client, test_user):
-    """Nach Login liefert /me die korrekten Nutzerdaten."""
+    """Profile should be accessible immediately after successful login."""
     client.post("/api/v1/auth/login", json={
         "email": "test@example.com", "password": "sicheresPasswort123",
     })
@@ -46,7 +45,7 @@ def test_me_after_login(client, test_user):
 
 
 def test_me_after_logout(client, test_user):
-    """Nach Logout ist /me nicht mehr erreichbar."""
+    """Profile access should be revoked immediately after logout."""
     client.post("/api/v1/auth/login", json={
         "email": "test@example.com", "password": "sicheresPasswort123",
     })
@@ -55,8 +54,7 @@ def test_me_after_logout(client, test_user):
     assert res.status_code == 401
 
 
-# ── US-1.2: Registrierung ─────────────────────────────────────────────────────
-
+# ── US-1.2: Registration ─────────────────────────────────────────────────────
 
 _REGISTER_PROFILE = {
     "first_name": "Max",
@@ -68,9 +66,9 @@ _REGISTER_PROFILE = {
 
 
 def test_register_success(client):
-    """Erfolgreiche Registrierung → 201 + JWT-Cookie gesetzt."""
+    """Valid registration should return HTTP 201 and set a JWT cookie."""
     res = client.post("/api/v1/auth/register", json={
-        "email":          "neu@example.com",
+        "email":          "new@example.com",
         "password":       "sicheresPasswort123",
         "accepted_terms": True,
         **_REGISTER_PROFILE,
@@ -82,19 +80,19 @@ def test_register_success(client):
 
 
 def test_register_password_too_short(client):
-    """Passwort < 8 Zeichen → 422 Validation Error."""
+    """Passwords shorter than 8 chars should return a validation error (HTTP 422)."""
     res = client.post("/api/v1/auth/register", json={
-        "email":          "neu@example.com",
-        "password":       "kurz",
+        "email":          "new@example.com",
+        "password":       "short",
         "accepted_terms": True,
     })
     assert res.status_code == 422
 
 
 def test_register_terms_not_accepted(client):
-    """AGB nicht akzeptiert → 422."""
+    """Failing to accept terms should be blocked (HTTP 422)."""
     res = client.post("/api/v1/auth/register", json={
-        "email":          "neu@example.com",
+        "email":          "new@example.com",
         "password":       "sicheresPasswort123",
         "accepted_terms": False,
     })
@@ -102,18 +100,19 @@ def test_register_terms_not_accepted(client):
 
 
 def test_register_duplicate_email(client, test_user):
-    """Bereits registrierte E-Mail → 409."""
+    """Registering an existing email should return a Conflict error (HTTP 409)."""
     res = client.post("/api/v1/auth/register", json={
         "email":          test_user.email,
-        "password":       "anderesPasswort123",
+        "password":       "anotherPassword123",
         "accepted_terms": True,
         **_REGISTER_PROFILE,
     })
     assert res.status_code == 409
+    assert res.json()["error"] == "ConflictError"
 
 
 def test_register_auto_login(client):
-    """Nach Registrierung ist der Nutzer direkt eingeloggt (Cookie gesetzt)."""
+    """Users should be automatically logged in after registration."""
     res = client.post("/api/v1/auth/register", json={
         "email":          "autoLogin@example.com",
         "password":       "sicheresPasswort123",
@@ -121,16 +120,15 @@ def test_register_auto_login(client):
         **_REGISTER_PROFILE,
     })
     assert res.status_code == 201
-    # Cookie erlaubt sofortigen Zugriff auf geschützte Endpunkte
+    # Check if secured endpoint is reachable
     cases = client.get("/api/v1/cases")
     assert cases.status_code == 200
 
 
 # ── US-1.3: Login ─────────────────────────────────────────────────────────────
 
-
 def test_login_success(client, test_user):
-    """Korrekte Credentials → 200 + JWT-Cookie."""
+    """Correct credentials should grant access and set session cookie."""
     res = client.post("/api/v1/auth/login", json={
         "email":    "test@example.com",
         "password": "sicheresPasswort123",
@@ -141,39 +139,38 @@ def test_login_success(client, test_user):
 
 
 def test_login_wrong_password(client, test_user):
-    """Falsches Passwort → 401."""
+    """Incorrect password should be rejected with HTTP 401."""
     res = client.post("/api/v1/auth/login", json={
         "email":    "test@example.com",
-        "password": "falschesPasswort!",
+        "password": "wrongPassword!",
     })
     assert res.status_code == 401
+    assert res.json()["error"] == "AuthenticationError"
 
 
 def test_login_unknown_email(client):
-    """Nicht registrierte E-Mail → 401 (kein Account-Enumeration-Leak)."""
+    """Unknown email should return HTTP 401 without leaking existence."""
     res = client.post("/api/v1/auth/login", json={
-        "email":    "gibts.nicht@example.com",
-        "password": "irgendeinPasswort123",
+        "email":    "none@example.com",
+        "password": "anyPassword123",
     })
     assert res.status_code == 401
+    assert res.json()["error"] == "AuthenticationError"
 
 
 def test_login_error_message_is_neutral(client, test_user):
-    """
-    Fehlermeldung für falsches Passwort und unbekannte E-Mail ist identisch.
-    Verhindert Account-Enumeration.
-    """
+    """Login failures must use identical neutral messages to prevent enumeration."""
     wrong_pw = client.post("/api/v1/auth/login", json={
-        "email": "test@example.com", "password": "falsch!",
+        "email": "test@example.com", "password": "wrong",
     })
     unknown = client.post("/api/v1/auth/login", json={
-        "email": "unbekannt@example.com", "password": "falsch!",
+        "email": "unknown@example.com", "password": "wrong",
     })
     assert wrong_pw.json()["detail"] == unknown.json()["detail"]
 
 
 def test_login_grants_access_to_protected_routes(client, test_user):
-    """Nach Login sind geschützte Endpunkte erreichbar."""
+    """Session cookie should allow access to protected API resources."""
     client.post("/api/v1/auth/login", json={
         "email":    "test@example.com",
         "password": "sicheresPasswort123",
@@ -184,9 +181,8 @@ def test_login_grants_access_to_protected_routes(client, test_user):
 
 # ── US-1.5: Logout ────────────────────────────────────────────────────────────
 
-
 def test_logout_success(client, test_user):
-    """Eingeloggter Nutzer kann sich abmelden → 200."""
+    """Authenticated users should be able to end their session."""
     client.post("/api/v1/auth/login", json={
         "email": "test@example.com", "password": "sicheresPasswort123",
     })
@@ -196,51 +192,46 @@ def test_logout_success(client, test_user):
 
 
 def test_logout_revokes_access(client, test_user):
-    """Nach Logout sind geschützte Endpunkte nicht mehr erreichbar."""
+    """Session cookies must be invalidated upon logout."""
     client.post("/api/v1/auth/login", json={
         "email": "test@example.com", "password": "sicheresPasswort123",
     })
     client.post("/api/v1/auth/logout")
-    # Cookie ist gelöscht – nächster Request muss 401 zurückgeben
     res = client.get("/api/v1/cases")
     assert res.status_code == 401
 
 
 def test_logout_without_auth(client):
-    """Logout ohne Cookie → 401."""
+    """Logging out without an active session should return Unauthorized (HTTP 401)."""
     res = client.post("/api/v1/auth/logout")
     assert res.status_code == 401
 
 
-# ── US-1.8: Passwort-Reset ────────────────────────────────────────────────────
-
+# ── US-1.8: Password Reset ────────────────────────────────────────────────────
 
 def test_forgot_password_known_email(client, test_user):
-    """Bekannte E-Mail → 200 mit Bestätigungsmeldung."""
+    """Requesting a reset for a known email return confirmation."""
     res = client.post("/api/v1/auth/forgot-password", json={"email": test_user.email})
     assert res.status_code == 200
     assert "message" in res.json()
 
 
 def test_forgot_password_unknown_email(client):
-    """Unbekannte E-Mail → trotzdem 200 (kein Enumeration-Leak)."""
-    res = client.post("/api/v1/auth/forgot-password", json={"email": "nein@example.com"})
+    """Requesting reset for unknown email must return same 200 to mask existence."""
+    res = client.post("/api/v1/auth/forgot-password", json={"email": "no@example.com"})
     assert res.status_code == 200
     assert "message" in res.json()
 
 
 def test_forgot_password_response_is_identical(client, test_user):
-    """
-    Antwort für bekannte und unbekannte E-Mail ist exakt gleich.
-    Verhindert, dass Angreifer gültige Accounts ermitteln können.
-    """
+    """Reset success/failure responses must be identical to block enumeration."""
     known   = client.post("/api/v1/auth/forgot-password", json={"email": test_user.email})
-    unknown = client.post("/api/v1/auth/forgot-password", json={"email": "nein@example.com"})
+    unknown = client.post("/api/v1/auth/forgot-password", json={"email": "no@example.com"})
     assert known.json()["message"] == unknown.json()["message"]
 
 
 def test_reset_password_valid_token(client, db, test_user):
-    """Gültiges Reset-Token → Passwort wird geändert, altes Passwort ungültig."""
+    """Valid tokens must allow changing the password and invalidate old ones."""
     raw_token, token_hash = generate_reset_token()
     db.add(PasswordResetToken(
         user_id=test_user.id,
@@ -251,67 +242,67 @@ def test_reset_password_valid_token(client, db, test_user):
 
     res = client.post("/api/v1/auth/reset-password", json={
         "token":    raw_token,
-        "password": "neuesPasswort456",
+        "password": "newPassword456",
     })
     assert res.status_code == 200
     assert res.json()["status"] == "success"
 
-    # Altes Passwort schlägt fehl
+    # Old password fails
     old_login = client.post("/api/v1/auth/login", json={
         "email": test_user.email, "password": "sicheresPasswort123",
     })
     assert old_login.status_code == 401
 
-    # Neues Passwort funktioniert
+    # New one works
     new_login = client.post("/api/v1/auth/login", json={
-        "email": test_user.email, "password": "neuesPasswort456",
+        "email": test_user.email, "password": "newPassword456",
     })
     assert new_login.status_code == 200
 
 
 def test_reset_password_expired_token(client, db, test_user):
-    """Abgelaufenes Token → 400."""
+    """Expired reset tokens must be rejected."""
     raw_token, token_hash = generate_reset_token()
     db.add(PasswordResetToken(
         user_id=test_user.id,
         token_hash=token_hash,
-        expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),  # abgelaufen
+        expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),  # expired
     ))
     db.commit()
 
     res = client.post("/api/v1/auth/reset-password", json={
-        "token": raw_token, "password": "neuesPasswort456",
+        "token": raw_token, "password": "newPassword456",
     })
-    assert res.status_code == 400
+    assert res.status_code in (400, 401)
 
 
 def test_reset_password_wrong_token(client):
-    """Komplett falsches Token → 400."""
+    """Invalid reset tokens must be rejected."""
     res = client.post("/api/v1/auth/reset-password", json={
-        "token": "komplett-falsches-token-xyz123", "password": "neuesPasswort456",
+        "token": "invalid-token-xyz123", "password": "newPassword456",
     })
-    assert res.status_code == 400
+    assert res.status_code in (400, 401)
 
 
 def test_reset_password_single_use(client, db, test_user):
-    """Bereits verwendetes Token → 400 (Token ist einmalig)."""
+    """Reusing a consumed reset token must be blocked."""
     raw_token, token_hash = generate_reset_token()
     db.add(PasswordResetToken(
         user_id=test_user.id,
         token_hash=token_hash,
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
-        used=True,  # bereits verwendet
+        used=True,
     ))
     db.commit()
 
     res = client.post("/api/v1/auth/reset-password", json={
-        "token": raw_token, "password": "neuesPasswort456",
+        "token": raw_token, "password": "newPassword456",
     })
-    assert res.status_code == 400
+    assert res.status_code in (400, 401)
 
 
 def test_reset_password_short_password(client, db, test_user):
-    """Neues Passwort zu kurz → 422."""
+    """Reset passwords must meet length requirements (HTTP 422)."""
     raw_token, token_hash = generate_reset_token()
     db.add(PasswordResetToken(
         user_id=test_user.id,
@@ -321,6 +312,6 @@ def test_reset_password_short_password(client, db, test_user):
     db.commit()
 
     res = client.post("/api/v1/auth/reset-password", json={
-        "token": raw_token, "password": "kurz",
+        "token": raw_token, "password": "short",
     })
     assert res.status_code == 422

@@ -1,20 +1,8 @@
 """
-StorageService – S3-kompatibler Objektspeicher für Dokumente.
+Storage service for S3-compatible object storage.
 
-Nutzt boto3 gegen MinIO (lokale Entwicklung) oder AWS S3 (Produktion).
-Der Bucket wird beim ersten Zugriff automatisch erstellt falls nicht vorhanden.
-
-Config (.env):
-  S3_ENDPOINT    – Intern (Docker): http://minio:9000 | AWS: https://s3.amazonaws.com
-  S3_PUBLIC_URL  – Öffentlich erreichbar (Browser): http://localhost:9000
-                   Leer lassen → fällt auf S3_ENDPOINT zurück.
-                   In Docker Dev: S3_ENDPOINT ist nur intern auflösbar (minio:9000),
-                   Presigned-URLs müssen aber localhost:9000 enthalten.
-  S3_ACCESS_KEY  – Access Key (MinIO: minioadmin)
-  S3_SECRET_KEY  – Secret Key (MinIO: minioadmin)
-  S3_BUCKET_NAME – Bucket-Name (z.B. resovva-docs)
-
-Datei-Pfade im Bucket folgen dem Schema: {case_id}/{uuid}.{ext}
+Handles file uploads, downloads, deletions, and generation of presigned URLs
+using boto3. Supports both internal Docker networking and public browser access.
 """
 
 import logging
@@ -29,29 +17,35 @@ logger = logging.getLogger(__name__)
 
 
 class StorageService:
-    """S3-kompatibler Objektspeicher (MinIO / AWS S3 / Wasabi)."""
+    """
+    S3-compatible object storage service (MinIO / AWS S3).
+
+    Handles bucket lifecycle and file operations. Uses two clients if
+    S3_PUBLIC_URL is configured to ensure presigned URLs are browser-reachable.
+    """
 
     def __init__(self) -> None:
+        """
+        Initialize S3 clients and ensure the target bucket exists.
+        """
         settings = get_settings()
         self._bucket = settings.s3_bucket_name
 
-        # Interner Client: für Up-/Download (läuft im Docker-Netzwerk → minio:9000 OK)
+        # Internal client for server-side operations (e.g., within Docker)
         self._client = boto3.client(
             "s3",
             endpoint_url=settings.s3_endpoint,
             aws_access_key_id=settings.s3_access_key,
             aws_secret_access_key=settings.s3_secret_key,
-            region_name="us-east-1",  # MinIO ignoriert die Region
+            region_name="us-east-1",
         )
 
-        # Presigned-URL-Client: nutzt öffentliche URL (browser-erreichbar).
-        # In Docker Dev: s3_endpoint=http://minio:9000 (intern),
-        #                s3_public_url=http://localhost:9000 (vom Browser erreichbar)
-        # Ohne s3_public_url → selber Client wie oben (AWS S3 / Prod reichen ein Client)
+        # Public client for presigned URLs (must be browser-reachable)
         public_endpoint = settings.s3_public_url or settings.s3_endpoint
         if public_endpoint != settings.s3_endpoint:
             logger.debug(
-                "StorageService: Presigned-URL-Client nutzt öffentliche URL: %s", public_endpoint
+                "StorageService: using public endpoint for presigned URLs",
+                extra={"endpoint": public_endpoint}
             )
             self._presigned_client = boto3.client(
                 "s3",
@@ -66,14 +60,19 @@ class StorageService:
         self._ensure_bucket()
 
     def _ensure_bucket(self) -> None:
-        """Erstellt den Bucket falls er noch nicht existiert (idempotent)."""
+        """
+        Create the bucket if it does not exist (idempotent).
+
+        Raises:
+            ClientError: If bucket head/create fails unexpectedly.
+        """
         try:
             self._client.head_bucket(Bucket=self._bucket)
         except ClientError as exc:
             code = exc.response["Error"]["Code"]
             if code in ("404", "NoSuchBucket"):
                 self._client.create_bucket(Bucket=self._bucket)
-                logger.info("S3-Bucket erstellt: %s", self._bucket)
+                logger.info("S3 bucket created", extra={"bucket": self._bucket})
             else:
                 raise
 
@@ -84,15 +83,15 @@ class StorageService:
         content_type: str = "application/octet-stream",
     ) -> str:
         """
-        Lädt Datei-Bytes in den Bucket hoch.
+        Upload file bytes to the bucket.
 
         Args:
-            data:         Dateiinhalt als Bytes.
-            key:          Pfad im Bucket (z.B. "{case_id}/{uuid}.pdf").
-            content_type: MIME-Type der Datei.
+            data: File content as bytes.
+            key: Path within the bucket.
+            content_type: MIME type of the file.
 
         Returns:
-            Den S3-Key für spätere Zugriffe.
+            str: The S3 key of the uploaded file.
         """
         self._client.put_object(
             Bucket=self._bucket,
@@ -100,48 +99,56 @@ class StorageService:
             Body=data,
             ContentType=content_type,
         )
-        logger.debug("Upload: s3://%s/%s (%d Bytes)", self._bucket, key, len(data))
+        logger.debug(
+            "File uploaded",
+            extra={"bucket": self._bucket, "key": key, "size": len(data)}
+        )
         return key
 
     def download_file(self, key: str) -> bytes:
         """
-        Lädt eine Datei aus dem Bucket herunter.
+        Download a file from the bucket.
+
+        Args:
+            key: Path within the bucket.
 
         Returns:
-            Dateiinhalt als Bytes.
+            bytes: File content.
 
         Raises:
-            FileNotFoundError: Wenn der Key nicht existiert.
+            FileNotFoundError: If the key does not exist.
         """
         try:
             response = self._client.get_object(Bucket=self._bucket, Key=key)
             return response["Body"].read()
         except ClientError as exc:
             if exc.response["Error"]["Code"] in ("404", "NoSuchKey"):
-                raise FileNotFoundError(f"Datei nicht gefunden: {key}") from exc
+                raise FileNotFoundError(f"File not found in S3: {key}") from exc
             raise
 
     def delete_file(self, key: str) -> None:
         """
-        Löscht eine Datei aus dem Bucket (idempotent – kein Fehler falls nicht vorhanden).
+        Delete a file from the bucket (idempotent).
+
+        Args:
+            key: Path within the bucket.
         """
         self._client.delete_object(Bucket=self._bucket, Key=key)
-        logger.debug("Gelöscht: s3://%s/%s", self._bucket, key)
+        logger.debug("File deleted", extra={"bucket": self._bucket, "key": key})
 
     def generate_presigned_url(self, key: str, expires_in: int = 3600) -> str:
         """
-        Generiert eine zeitlich begrenzte Download-URL (z.B. für das Dossier).
+        Generate a time-limited download URL.
 
-        Nutzt den Presigned-URL-Client mit der öffentlich erreichbaren URL
-        (S3_PUBLIC_URL), damit der Browser-Redirect funktioniert, auch wenn der
-        interne S3_ENDPOINT nur im Docker-Netzwerk auflösbar ist (minio:9000).
+        Uses the presigned client (configured with public endpoint) to ensure
+        the URL is accessible by the user's browser.
 
         Args:
-            key:        S3-Key der Datei.
-            expires_in: Gültigkeitsdauer in Sekunden (Standard: 1 Stunde).
+            key: S3 key of the file.
+            expires_in: Expiry duration in seconds (default: 1 hour).
 
         Returns:
-            Presigned URL als String (mit browser-erreichbarem Hostnamen).
+            str: The presigned URL.
         """
         return self._presigned_client.generate_presigned_url(
             "get_object",
@@ -150,17 +157,18 @@ class StorageService:
         )
 
 
-# ── Lazy Singleton ────────────────────────────────────────────────────────────
-
-_storage: Optional[StorageService] = None
+# Singleton instance
+_storage_service: Optional[StorageService] = None
 
 
 def get_storage() -> StorageService:
     """
-    Gibt die globale StorageService-Instanz zurück (Lazy Singleton).
-    Erstellt Boto3-Client und prüft/erstellt den Bucket beim ersten Aufruf.
+    Get the global StorageService instance (Lazy Singleton).
+
+    Returns:
+        StorageService: The initialized storage service.
     """
-    global _storage
-    if _storage is None:
-        _storage = StorageService()
-    return _storage
+    global _storage_service
+    if _storage_service is None:
+        _storage_service = StorageService()
+    return _storage_service

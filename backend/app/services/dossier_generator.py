@@ -1,53 +1,47 @@
 """
-DossierGenerator – US-6.1 / US-6.2 (Epic 6).
+Dossier generation service.
 
-Lädt Case- und User-Daten aus der DB, befüllt das Jinja2-Template
-``dossier_main.html`` und rendert es via WeasyPrint zu einem PDF.
-
-Gibt ``bytes`` zurück – kein temporäres File nötig.
-
-WeasyPrint-Abhängigkeiten (System):
-  - libpangocairo  (Text-Layout)
-  - libcairo       (2D-Grafik-Library)
-  - libgdk-pixbuf  (Bild-Dekodierung)
-  → werden im Dockerfile für alle Stages installiert.
-
-Dev-Modus: Falls WeasyPrint nicht importierbar ist (z.B. Windows-lokal ohne
-  System-Libraries), wird ein minimales Dummy-PDF zurückgegeben damit der
-  restliche Workflow (Status-Tracking, S3-Upload) trotzdem getestet werden kann.
+Loads case and user data, populates the 'dossier_main.html' Jinja2 template,
+and renders it to a PDF using WeasyPrint.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List
+
+from app.domain.exceptions import InternalServerError
 
 if TYPE_CHECKING:
     from app.domain.models.db import Case, User
 
 logger = logging.getLogger(__name__)
 
-# Pfad zum Template-Verzeichnis (relativ zu diesem Modul: ../../templates)
-_TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
+# Directory containing HTML templates
+_TEMPLATE_DIR: Path = Path(__file__).parent.parent / "templates"
 
-# Übersetzungstabelle Opponent-Kategorie → lesbarer Name
-CATEGORY_LABELS: dict[str, str] = {
-    "strom":               "Energieversorger (Strom)",
-    "gas":                 "Energieversorger (Gas)",
-    "wasser":              "Wasserversorger",
-    "versicherung":        "Versicherung",
-    "mobilfunk_internet":  "Mobilfunk / Internet",
-    "amt_behoerde":        "Amt / Behörde",
-    "vermieter_immobilien":"Vermieter / Immobilien",
-    "sonstiges":           "Sonstige Streitpartei",
+# Mapping of opponent categories to human-readable German labels
+CATEGORY_LABELS: Dict[str, str] = {
+    "strom":                "Energieversorger (Strom)",
+    "gas":                  "Energieversorger (Gas)",
+    "wasser":               "Wasserversorger",
+    "versicherung":         "Versicherung",
+    "mobilfunk_internet":   "Mobilfunk / Internet",
+    "amt_behoerde":         "Amt / Behörde",
+    "vermieter_immobilien": "Vermieter / Immobilien",
+    "sonstiges":            "Sonstige Streitpartei",
 }
 
 
 def _get_jinja_env():
-    """Gibt eine Jinja2-Environment Instanz zurück (Lazy Init)."""
+    """
+    Initialize and return the Jinja2 environment.
+
+    Returns:
+        jinja2.Environment: Configured Jinja2 environment.
+    """
     from jinja2 import Environment, FileSystemLoader, select_autoescape
     return Environment(
         loader=FileSystemLoader(str(_TEMPLATE_DIR)),
@@ -57,27 +51,44 @@ def _get_jinja_env():
 
 def _render_pdf(html_string: str) -> bytes:
     """
-    Rendert einen HTML-String via WeasyPrint zu PDF-Bytes.
+    Render HTML string to PDF bytes using WeasyPrint.
 
-    Falls WeasyPrint nicht verfügbar ist (Dev ohne System-Libs), wird ein
-    minmales 1-Seiten-Dummy-PDF generiert damit der Workflow getestet werden kann.
+    If WeasyPrint is not available (common in local development environments
+    without system libraries), a minimal dummy PDF is returned.
+
+    Args:
+        html_string: The full HTML content to render.
+
+    Returns:
+        bytes: The rendered PDF document.
+
+    Raises:
+        InternalServerError: If rendering fails unexpectedly.
     """
     try:
         from weasyprint import HTML  # type: ignore[import-untyped]
         return HTML(string=html_string, base_url=str(_TEMPLATE_DIR)).write_pdf()
     except ImportError:
         logger.warning(
-            "WeasyPrint nicht verfügbar (System-Libraries fehlen). "
-            "Verwende Dummy-PDF für Dev-Modus."
+            "WeasyPrint not available. Using minimal dummy PDF for development."
         )
         return _minimal_dummy_pdf()
     except Exception as exc:
-        logger.error("WeasyPrint render fehlgeschlagen: %r", exc)
-        raise
+        logger.error(
+            "WeasyPrint rendering failed",
+            extra={"error": str(exc)},
+            exc_info=True
+        )
+        raise InternalServerError(f"Failed to render PDF: {str(exc)}")
 
 
 def _minimal_dummy_pdf() -> bytes:
-    """Erzeugt ein syntaktisch minimales valides PDF für Dev-Zwecke."""
+    """
+    Create a syntactically minimal valid PDF for development fallback.
+
+    Returns:
+        bytes: A minimalist PDF document.
+    """
     content = (
         "%PDF-1.4\n"
         "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
@@ -103,33 +114,32 @@ def _minimal_dummy_pdf() -> bytes:
 
 class DossierGenerator:
     """
-    Erzeugt das Haupt-PDF eines Dossiers (Deckblatt + Anschreiben + Chronologie).
-
-    Usage::
-
-        gen = DossierGenerator()
-        pdf_bytes = gen.generate(case, user, timeline_events)
+    Generator for the main dossier PDF (covering letter + chronology).
     """
 
     def __init__(self) -> None:
+        """Initialize the generator with a Jinja2 environment."""
         self._env = _get_jinja_env()
 
     def generate(
         self,
         case: "Case",
         user: "User",
-        timeline_events: list[dict],
+        timeline_events: List[Dict[str, Any]],
     ) -> bytes:
         """
-        Befüllt das Jinja2-Template mit Case-Daten und rendert es zu PDF.
+        Generate the dossier PDF document.
 
         Args:
-            case:             SQLAlchemy Case-Objekt (mit loaded extracted_data).
-            user:             SQLAlchemy User-Objekt (Absender des Anschreibens).
-            timeline_events:  Liste von dicts: {event_date, description, is_gap, source_type, source_doc_id}.
+            case: The SQLAlchemy Case model instance.
+            user: The SQLAlchemy User model instance.
+            timeline_events: List of event dictionaries for the chronology.
 
         Returns:
-            Fertige PDF-Bytes.
+            bytes: The generated PDF document.
+
+        Raises:
+            InternalServerError: If PDF generation fails.
         """
         data = case.extracted_data or {}
         category = case.opponent_category or data.get("opponent_category") or "sonstiges"
@@ -137,31 +147,36 @@ class DossierGenerator:
         template_ctx = {
             "case_id":              str(case.id)[-8:].upper(),
             "generated_at":         datetime.now(timezone.utc).strftime("%d.%m.%Y"),
-            "user":                 user,
-            # Streitpartei
+            "user_name":            f"{user.first_name or ''} {user.last_name or ''}".strip(),
             "opponent_name":        case.opponent_name or data.get("opponent_name") or "",
             "opponent_category":    category,
             "opponent_category_label": CATEGORY_LABELS.get(category, category),
-            # Kerndaten
             "meter_number":         data.get("meter_number"),
             "malo_id":              data.get("malo_id"),
             "dispute_amount":       data.get("dispute_amount"),
             "network_operator":     data.get("network_operator"),
             "document_count":       len(case.documents) if hasattr(case, "documents") else 0,
-            # Chronologie
             "timeline_events":      timeline_events,
         }
 
-        template = self._env.get_template("dossier_main.html")
-        rendered_html = template.render(**template_ctx)
+        try:
+            template = self._env.get_template("dossier_main.html")
+            rendered_html = template.render(**template_ctx)
 
-        logger.info("DossierGenerator: Template gerendert für Case %s.", case.id)
-        pdf_bytes = _render_pdf(rendered_html)
-        logger.info(
-            "DossierGenerator: PDF erzeugt – %d Bytes (Case %s).",
-            len(pdf_bytes), case.id,
-        )
-        return pdf_bytes
+            logger.info("Dossier HTML rendered successfully", extra={"case_id": str(case.id)})
+            pdf_bytes = _render_pdf(rendered_html)
+            logger.info(
+                "Dossier PDF generated",
+                extra={"case_id": str(case.id), "size": len(pdf_bytes)}
+            )
+            return pdf_bytes
+        except Exception as exc:
+            logger.error(
+                "Failed to generate dossier",
+                extra={"case_id": str(case.id), "error": str(exc)},
+                exc_info=True
+            )
+            raise InternalServerError(f"Dossier generation failed: {str(exc)}")
 
 
 def render_dossier_ready_email(
@@ -170,15 +185,15 @@ def render_dossier_ready_email(
     dashboard_url: str,
 ) -> str:
     """
-    Rendert das HTML der Benachrichtigungsmail (Dossier fertig).
+    Render the HTML content for the 'dossier ready' notification email.
 
     Args:
-        user_name:     Vorname + Nachname des Nutzers.
-        case_id:       Fall-UUID (Kurzform für E-Mail).
-        dashboard_url: URL zum Dashboard / Dossier-Download.
+        user_name: Full name of the user.
+        case_id: The case ID (full UUID string).
+        dashboard_url: Public URL to the dashboard for download.
 
     Returns:
-        Gerendeter HTML-String für den E-Mail-Body.
+        str: Rendered HTML email body.
     """
     env = _get_jinja_env()
     template = env.get_template("email_dossier_ready.html")
